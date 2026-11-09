@@ -18,6 +18,16 @@ Generic to any Switch title and reused as is, then extended where Scarlet calls 
 - Spin-wait list (`tools/spin_waits.py` output), shader list, RomFS overlays, HUD/aspect layouts.
 - Romfs formats: Scarlet uses Trinity (`data.trpfd` / `data.trpfs` packs), not TotK's zstd/sarc.
 
+## Requirements
+
+- **No shader compilation during play.** Every shader and pipeline is built in a preparation step before the game
+  starts (as TotK's `prepare_shaders.py` / `--prepare-shaders`):
+  - precompiled Maxwell shaders from the RomFS are translated to SPIR-V and compiled ahead;
+  - shaders the game builds through `glslc*` at run time are compiled from their GLSL to SPIR-V ahead: sources found
+    in the RomFS are compiled directly; variants generated at run time are recorded by a host `glslc` (hash of source
+    and options) during development play and shipped as a list the preparation step compiles;
+  - pipeline keys seen in play are saved and built at boot.
+
 ## Phases
 
 0. Repository, config and content rules. **(done when committed)**
