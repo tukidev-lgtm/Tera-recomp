@@ -1,0 +1,17 @@
+# Copy to config.local.toml (ignored by git) and point it at your own files.
+
+[game]
+# 'scarlet' or 'violet'
+title = 'scarlet'
+
+[input]
+# Base game, title id 0100A3D008C5C000 (Scarlet) / 01008F6008C5E000 (Violet), as NSP or XCI.
+base = 'C:\Games\SV\scarlet-base.nsp'
+# Optional cumulative update NSP(s), title id 0100A3D008C5C800 / 01008F6008C5E800.
+updates = []
+# Keys dumped from your own console. Never printed or copied by the tools.
+keys = 'C:\Switch\prod.keys'
+
+[work]
+# Extracted files, generated C and builds go here. Keep it outside git (build/ is ignored).
+dir = 'build'
