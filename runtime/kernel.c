@@ -1419,6 +1419,33 @@ static RtThread *thr_new(int prio, int core, uint64_t mask) {
     return t;
 }
 
+// Crash report: every guest thread with its priority, its wait (kind, address, key) or the core it holds, and its
+// guest frame-pointer chain from the registers it last stored. Reads without the kernel lock: the process is stopping
+// and the lock may be held by the crashing thread; a thread changing state meanwhile shows a mixed picture.
+void kern_threads_dump(void) {
+    static const char *const kinds[] = {"none", "lock", "condvar", "address", "sync", "sleep", "other", "other"};
+    int n = 0;
+    for (RtThread *t = g_all; t && n < 256; t = t->all, n++) {
+        char d[160];
+        const Cpu *c = t->cpu;
+        rt_logf("  thread %#x prio %d core %d%s%s%s: wait %s addr %#llx key %#llx, holds core %d\n", t->handle, t->prio,
+                t->core, t->is_main ? " main" : "", t == tcur ? " (crashed)" : "", t->exited ? " exited" :
+                !t->started ? " not started" : "", kinds[(unsigned)t->wkind & 7], (unsigned long long)t->waddr,
+                (unsigned long long)t->wkey, t->cur_core);
+        if (!c) continue;
+        uint64_t fp = c->x[29];
+        rt_logf("    lr %s\n", ldr_describe(c->x[30], d, sizeof d));
+        for (int k = 0; k < 12 && fp && !(fp & 7) && plat_mem_readable(fp, 16); k++) {
+            uint64_t next = 0, lr = 0;
+            plat_mem_read(fp, &next, 8);
+            plat_mem_read(fp + 8, &lr, 8);
+            rt_logf("    frame %2d: %s\n", k, ldr_describe(lr, d, sizeof d));
+            if (next <= fp || next - fp > (64u << 20)) break;
+            fp = next;
+        }
+    }
+}
+
 static void thr_link(RtThread *t) {   // holding G
     t->handle = h_new(O_THREAD, t);
     t->id = g_next_id++;

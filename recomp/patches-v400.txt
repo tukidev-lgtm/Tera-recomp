@@ -8,10 +8,8 @@ trace main 14ff4dc 14ff5cc 14fe7e8
 # The failing object (vtable main+0x4500fc0, multiple inheritance) is freshly constructed: +0x38..+0x78 all zero.
 # The outer object is 0x...874000, vtable main+0x443ffd0: the same Trinity file/archive manager that mounted the RomFS
 # and read data.trpfd (main+0x11e1a60). Its virtual main+0x14fd2d8 (1348 instructions) obtains the inner object.
-# The inner object is a global singleton (slot main+0x46d8288, loaded at main+0x14fd388). The call's surroundings name
-# "Wwise_Motion", audio/fb/... config paths and bankName%d: the Wwise sound engine's setup.
-# Next: every store to +0x58 in the functions that load that singleton; the one whose base register holds the
-# singleton is its setter.
-trace main 977f88 97ad0c 97ae9c 97c80c 97e58c f63eb8 107baf0 1082030 10824a8 1083c84 1083f64 10846e0 12eca10
-trace main 12ecb64 139e20c 13f7a1c 13f7b74 13f7c74 13f7cf0 149c2e4 149c310 149c3dc 149c484 149c58c 149d36c
-trace main 149d3b8 149d720 14eb528 14eb5a0 18e4c18
+# The inner object is a global singleton (slot main+0x46d8288) of the Wwise setup. None of the 33 `str` to +0x58 in
+# the 139 functions that load it ran before the crash; the crash report's thread dump shows a Wwise thread (0x101d)
+# still loading banks (PL.bnk) when the main thread crashes. The only other writer of +0x58 found is a `stp` to
+# +0x50 in main+0x11267bc: entry and the store.
+trace main 11267bc 1126954

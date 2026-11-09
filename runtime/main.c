@@ -266,6 +266,8 @@ static void crash_handler(const PlatCrash *x) {
     } else {
         rt_logf("  not on a guest thread\n");
     }
+    rt_logf("guest threads:\n");
+    kern_threads_dump();
     kern_free_cores_note();
     fflush(stderr);
     plat_exit(71);

@@ -32,3 +32,9 @@ Later runs narrowed it down:
 
 Working theory: the registry is filled when the audio configs are loaded from the pack, on a worker thread that on
 the console finishes before this step and on the host has not run or is blocked.
+
+Crash-time thread dump (`kern_threads_dump`, printed under `guest threads:`): every worker waits on its condition
+variable; thread 0x101d (priority 43, code around main+0x339e414) is running a host file read, loading Wwise banks
+(`PL.bnk`) at the moment the main thread crashes. The main thread's main+0x14fd2d8 calls no wait function (only
+mutexes, `__cxa_guard_*`, bsearch, string functions and nn::audio::AcquireAudioDeviceNotificationForOutput), so the
+ordering against the bank loader has to come from earlier in the init chain.
