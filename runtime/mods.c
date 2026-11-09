@@ -29,7 +29,8 @@
 #include "mods.h"
 #include "platform/platform.h"
 
-#define TITLE "0100F2C0115B6000"
+#include "title.h"
+#define TITLE TITLE_ID_STR
 #define MAX_MODS 512
 
 static ModInfo *mods;

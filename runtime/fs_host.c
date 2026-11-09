@@ -25,7 +25,8 @@
 #include "platform/platform.h"
 #include "romfs_path.h"
 
-#define TOTK_APPLICATION_ID 0x0100f2c0115b6000ull
+#include "title.h"
+#define TOTK_APPLICATION_ID TITLE_PROGRAM_ID   // the running title (title.h); the name is kept from TotK
 #define FILE_BASE 0x200000000ull
 #define DIR_BASE 0x300000000ull
 #define NFILES 1024
@@ -1218,6 +1219,49 @@ HOST_OVERRIDE(S_OPEN_CACHE_LIST, ov_open_cache_list);
 HOST_OVERRIDE(S_READ_CACHE_LIST, ov_read_cache_list);
 HOST_OVERRIDE(S_CLOSE_CACHE_LIST, ov_close_cache_list);
 HOST_OVERRIDE(S_SET_PRIORITY, ov_set_priority);
+
+// ---- nn::fs entry points Scarlet/Violet call that TotK did not. Without an override each one runs the lifted SDK,
+// which opens the fsp-srv service the host does not have.
+
+// void nn::fs::SetAllocator(void *(*alloc)(size_t), void (*free)(void *, size_t)): the SDK's fs library allocates its
+// IPC objects with it; the host fs allocates nothing in guest memory.
+static void ov_set_allocator(Cpu *c) { (void)c; }
+
+// nn::Result nn::fs::EnsureSaveData(const nn::account::Uid &): the save is created on its first mount (mount_save).
+static void ov_ensure_save(Cpu *c) { ret_x(c, my_uid(arg_p(c, 0)) ? 0 : FS_R_TARGET_NOT_FOUND); }
+
+// bool nn::fs::IsSaveDataExisting(const nn::account::Uid &): this title's own save.
+static void ov_save_exists_self(Cpu *c) { ret_x(c, save_exists(TOTK_APPLICATION_ID, arg_p(c, 0))); }
+
+// nn::Result nn::fs::MountAddOnContent(const char *name, int index, void *cache, size_t cache_size): no add-on content
+// on this host (aoc reports none, so the game should not ask).
+static void ov_mount_aoc(Cpu *c) {
+    rt_log("fs: MountAddOnContent index %d refused: no add-on content", (int)arg_x(c, 1));
+    ret_x(c, FS_R_TARGET_NOT_FOUND);
+}
+
+// nn::Result nn::fs::QueryMountAddOnContentCacheSize(size_t *out, int index)
+static void ov_query_aoc_cache(Cpu *c) {
+    uint64_t *out = arg_p(c, 0);
+    if (out) *out = 0;
+    ret_x(c, out ? 0 : FS_R_INVALID);
+}
+
+// const nn::fs::FsContext *nn::fs::GetCurrentThreadFsContext() and SetCurrentThreadFsContext(const FsContext *): the
+// context picks how the SDK's fs library handles a failed result. The host fs never goes through that library, so the
+// pointer is only kept per thread and handed back; the default is an empty context.
+static _Alignas(16) const uint8_t default_fs_context[64];
+static __thread const void *fs_context;
+static void ov_get_fs_context(Cpu *c) { ret_x(c, (uint64_t)(uintptr_t)(fs_context ? fs_context : default_fs_context)); }
+static void ov_set_fs_context(Cpu *c) { fs_context = arg_p(c, 0); }
+
+HOST_OVERRIDE("_ZN2nn2fs12SetAllocatorEPFPvmEPFvS1_mE", ov_set_allocator);
+HOST_OVERRIDE("_ZN2nn2fs14EnsureSaveDataERKNS_7account3UidE", ov_ensure_save);
+HOST_OVERRIDE("_ZN2nn2fs18IsSaveDataExistingERKNS_7account3UidE", ov_save_exists_self);
+HOST_OVERRIDE("_ZN2nn2fs17MountAddOnContentEPKciPvm", ov_mount_aoc);
+HOST_OVERRIDE("_ZN2nn2fs31QueryMountAddOnContentCacheSizeEPmi", ov_query_aoc_cache);
+HOST_OVERRIDE("_ZN2nn2fs25GetCurrentThreadFsContextEv", ov_get_fs_context);
+HOST_OVERRIDE("_ZN2nn2fs25SetCurrentThreadFsContextEPKNS0_9FsContextE", ov_set_fs_context);
 
 // ---- --probe-fs
 // Every check calls the overrides the way guest code does: by synthetic address through rt_call, with AAPCS64

@@ -16,7 +16,8 @@
 #define ST_FREE 0u
 #define ST_STACK 0xBu
 #define PERM_RW 3u
-#define PROGRAM_ID 0x0100f2c0115b6000ull
+#include "title.h"
+#define PROGRAM_ID TITLE_PROGRAM_ID
 
 static uint64_t g_svcs;
 void (*volatile svc_test_exit_hook)(unsigned code);
