@@ -86,6 +86,7 @@ static void cb_module_inits(Cpu *c) {
         uint32_t state = ctor_state(m);
         rt_logf("boot: DT_INIT %s state=%u (%llu)\n", m->name, state, (unsigned long long)entries);
         if (state != CTOR_DONE) rt_fatal("boot: %s DT_INIT left its constructor flag at %u, not 2", m->name, state);
+        if (RT_SV) continue;   // no recorded counts for Scarlet/Violet: the constructor flag above is the check
         if (entries != expected_inits[k].entries)
             rt_fatal("boot: %s has %llu init_array entries, this game version has %llu", m->name, (unsigned long long)entries,
                      (unsigned long long)expected_inits[k].entries);
@@ -111,7 +112,7 @@ void rt_boot_event(const char *what, Cpu *c, const char *detail) {
     uint64_t ret = c->x[30];
     caller(c, at, sizeof at);
     if (!strcmp(what, "checkpoint")) {
-        if (ret != main_mod->base + CHECKPOINT_RET)
+        if (RT_TOTK && ret != main_mod->base + CHECKPOINT_RET)
             rt_fatal("boot: checkpoint %s reached from %s, expected main+%#llx", detail, at,
                      (unsigned long long)CHECKPOINT_RET);
         if (!plat_cas32(&inits_done, 0, 0)) rt_fatal("boot: checkpoint %s before DT_INIT", detail);
@@ -124,7 +125,7 @@ void rt_boot_event(const char *what, Cpu *c, const char *detail) {
         return;
     }
     if (!strcmp(what, "nvn")) {
-        if (ret != main_mod->base + NVN_RET)
+        if (RT_TOTK && ret != main_mod->base + NVN_RET)
             rt_fatal("boot: first NVN call %s(\"%s\") from %s, expected main+%#llx", "nvnBootstrapLoader", detail, at,
                      (unsigned long long)NVN_RET);
         if (!plat_cas32(&checkpoint_seen, 0, 0))

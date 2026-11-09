@@ -190,10 +190,14 @@ typedef struct { const char *file, *sha256; } RtFileHash;
 extern const RtFileHash rt_exefs_sha256[];                 // tools/data/expected-<version>.json "exefs_sha256"
 extern const int rt_exefs_sha256_count;
 extern const char rt_default_exefs[], rt_default_romfs[], rt_default_profile[];
-extern const int rt_game_version;                          // the game build: 110 (1.1.0), 121 (1.2.1) or 143 (1.4.3)
+extern const int rt_game_version;                          // the game build: TotK 110, 121, 143; Scarlet/Violet 400
 extern const char rt_port_version[];                       // VERSION at the build's root: 0.1.0, 0.1.0+973c626 in a release
 #define RT_V110 (rt_game_version == 110)                    // 1.1.0: its own boot constants and data slots
-#define RT_V143 (rt_game_version >= 143)
+// Scarlet/Violet (4.0.0 and later). Every constant the runtime inherited from TotK (addresses in main, data slots,
+// struct sizes, init counts) holds for TotK only: code that uses one checks RT_TOTK first.
+#define RT_SV (rt_game_version >= 400)
+#define RT_TOTK (!RT_SV)
+#define RT_V143 (rt_game_version >= 143 && RT_TOTK)
 
 // ---- kernel (kernel.c)
 typedef struct RtThread RtThread;
