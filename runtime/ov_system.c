@@ -119,6 +119,32 @@ static void ov_desired_language(Cpu *c) {
     ret_x(c, v);
 }
 
+// nn::settings::Language -> its language code, in the SDK's enum order (Japanese 0 ... BrazilianPortuguese 17).
+// Scarlet/Violet build and compare codes through these; the lifted SDK versions ask the "set" service.
+static const char *const settings_codes[] = {"ja", "en-US", "fr", "de", "it", "es", "zh-CN", "ko", "nl", "pt", "ru",
+                                             "zh-TW", "en-GB", "fr-CA", "es-419", "zh-Hans", "zh-Hant", "pt-BR"};
+#define NSETTINGS_CODES ((int)(sizeof settings_codes / sizeof *settings_codes))
+static uint64_t language_code(int64_t language) {
+    if (language < 0 || language >= NSETTINGS_CODES) rt_fatal("nn::settings: language %lld out of range", (long long)language);
+    uint64_t v = 0;
+    memcpy(&v, settings_codes[language], strlen(settings_codes[language]));
+    return v;
+}
+// LanguageCode nn::settings::LanguageCode::Make(Language): char[8] in x0
+static void ov_language_code_make(Cpu *c) { ret_x(c, language_code((int32_t)arg_x(c, 0))); }
+// bool nn::settings::operator==(const LanguageCode &, const Language &)
+static void ov_code_eq_language(Cpu *c) {
+    const uint64_t *code = arg_p(c, 0);
+    const int32_t *language = arg_p(c, 1);
+    ret_x(c, *code == language_code(*language));
+}
+// bool nn::settings::operator==(const Language &, const LanguageCode &)
+static void ov_language_eq_code(Cpu *c) {
+    const int32_t *language = arg_p(c, 0);
+    const uint64_t *code = arg_p(c, 1);
+    ret_x(c, *code == language_code(*language));
+}
+
 static void ov_oe_initialize(Cpu *c) { (void)c; rt_log("oe: application environment: a local host process"); }
 
 // void SetPerformanceConfiguration(PerformanceMode mode, int config)
@@ -872,6 +898,9 @@ static void ov_font_size(Cpu *c) {
 // ==== registration
 HOST_OVERRIDE("_ZN2nn2oe10InitializeEv", ov_oe_initialize);
 HOST_OVERRIDE("_ZN2nn2oe18GetDesiredLanguageEv", ov_desired_language);
+HOST_OVERRIDE("_ZN2nn8settings12LanguageCode4MakeENS0_8LanguageE", ov_language_code_make);
+HOST_OVERRIDE("_ZN2nn8settingseqERKNS0_12LanguageCodeERKNS0_8LanguageE", ov_code_eq_language);
+HOST_OVERRIDE("_ZN2nn8settingseqERKNS0_8LanguageERKNS0_12LanguageCodeE", ov_language_eq_code);
 HOST_OVERRIDE("_ZN2nn2oe27SetPerformanceConfigurationENS0_15PerformanceModeEi", ov_performance_config);
 HOST_OVERRIDE("_ZN2nn2oe15SetCpuBoostModeENS0_12CpuBoostModeE", ov_cpu_boost);
 HOST_OVERRIDE("_ZN2nn2oe16GetOperationModeEv", ov_operation_mode);
