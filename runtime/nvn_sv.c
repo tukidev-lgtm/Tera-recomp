@@ -98,3 +98,11 @@ NVN_API(nvnEventBuilderGetStorage) {
     if (off) *off = b->off;
     ret_x(c, (uint64_t)(uintptr_t)b->pool);
 }
+
+// ---------- Buffer builder (buf_builder_t, nvn_api.h)
+#define BB(c) ((const buf_builder_t *)arg_p(c, 0))
+NVN_API(nvnBufferBuilderGetDevice) { ret_x(c, (uint64_t)(uintptr_t)BB(c)->dev); }
+NVN_API(nvnBufferBuilderGetMemoryPool) { ret_x(c, (uint64_t)(uintptr_t)BB(c)->pool); }
+NVN_API(nvnBufferBuilderGetMemoryOffset) { ret_x(c, (uint64_t)BB(c)->off); }
+NVN_API(nvnBufferBuilderGetSize) { ret_x(c, BB(c)->size); }
+#undef BB
