@@ -21,3 +21,9 @@ trace main 1507028 15053b0 15054e8
 # Run 2: main+0x1507028 returns 1, main+0x1508a4c returns 0. main+0x1508a4c(singleton, holder): holder->+0x38/+0x40 is
 # a directory path that must end in '/', then main+0x15096ec(singleton, path) decides; more checks follow. Its decisions:
 trace main 1508a74 1508a94 1508ac8 1508ad4 1508b2c 1508b84 1508bb8 1508be4 1508c60 1508c88 1508ca0 1508dcc 1508df0
+
+# Run 3 (after the trailing-slash fix, the hid calls and the shared fonts): main+0x2151b80 reads +0x38 of a null glyph
+# from main+0x788704, whose nn::fontll::ScalableFontEngine::CheckGlyphExist says no. What the font engine gets:
+# LoadFont(name, data, size, index), SetFont(name), CheckGlyphExist(code), and the null result.
+trace sdk 18de08 18e60c 18e664
+trace main 2151bc0

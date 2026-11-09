@@ -855,6 +855,9 @@ static int64_t font_type(Cpu *c, const char *fn) {
     return t;
 }
 static void ov_font_state(Cpu *c) { font_type(c, "GetSharedFontLoadState"); ret_x(c, 1); }
+// void RequestSharedFontLoad(SharedFontType): Scarlet/Violet ask before reading the state; the font file is read on
+// its first GetSharedFontAddress / GetSharedFontSize (font_data), and the state already reads loaded.
+static void ov_font_request(Cpu *c) { font_type(c, "RequestSharedFontLoad"); }
 
 // The font of type t, read and checked on first use; a named fatal when it is missing or damaged.
 static const uint8_t *font_data(Cpu *c, const char *fn, int64_t t) {
@@ -878,8 +881,8 @@ static const uint8_t *font_data(Cpu *c, const char *fn, int64_t t) {
         if (!size) rt_fatal("nn::pl: shared font %s is not a BFTTF font", path);
         fonts.size[t] = size;
         __atomic_store_n(&fonts.file[t], p, __ATOMIC_RELEASE);
-        rt_log("pl: shared font %lld (%s): %llu bytes from %s", (long long)t, font_type_name(t),
-               (unsigned long long)size, path);
+        rt_log("pl: shared font %lld (%s): %llu bytes at %p (Address %p) from %s", (long long)t, font_type_name(t),
+               (unsigned long long)size, (void *)p, (void *)(p + 8), path);
     }
     const uint8_t *p = fonts.file[t];
     plat_mutex_unlock(&fonts.lock);
@@ -983,5 +986,6 @@ HOST_OVERRIDE("_ZN2nn4time48CalculateStandardUserSystemClockDifferenceByUserERKN
               ov_user_difference);
 
 HOST_OVERRIDE("_ZN2nn2pl22GetSharedFontLoadStateENS0_14SharedFontTypeE", ov_font_state);
+HOST_OVERRIDE("_ZN2nn2pl21RequestSharedFontLoadENS0_14SharedFontTypeE", ov_font_request);
 HOST_OVERRIDE("_ZN2nn2pl20GetSharedFontAddressENS0_14SharedFontTypeE", ov_font_address);
 HOST_OVERRIDE("_ZN2nn2pl17GetSharedFontSizeENS0_14SharedFontTypeE", ov_font_size);
