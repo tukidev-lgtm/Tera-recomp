@@ -6,5 +6,7 @@
 # and is not it: its flag reads 1 and it fills +0x58 of another object.
 trace main 14ff4dc 14ff5cc 14fe7e8
 # The failing object (vtable main+0x4500fc0, multiple inheritance) is freshly constructed: +0x38..+0x78 all zero.
-# Next: the outer object the init chain calls through slot +0x58 (main+0x11bcec4) and main+0x14fd2d8's own this.
-trace main 11bcec4 14fd2d8
+# The outer object is 0x...874000, vtable main+0x443ffd0: the same Trinity file/archive manager that mounted the RomFS
+# and read data.trpfd (main+0x11e1a60). Its virtual main+0x14fd2d8 (1348 instructions) obtains the inner object.
+# Next: the return of each late call in main+0x14fd2d8, to find where the inner object first appears.
+trace main 14fd2d8 14fd868 14fdd94 14fe110 14fe12c 14fe148 14fe150 14fe260 14fe788 14fe7c8
