@@ -22,5 +22,13 @@ Boot path: `nnMain` -> main+0x165e87c -> main+0x92bdc0 -> main+0x11acbb0 -> main
 - The inner object is freshly constructed: +0x38..+0x78 are all zero.
 - Ruled out: main+0x11e1a60's feature flag (main+0x4759428 reads 1; that block runs and fills another object).
 
-Working theory: +0x58 is the loaded data of a file inside the Trinity pack, filled by a load that never ran or never
-finished on the host (a worker thread, or a read path the runtime answers differently).
+Later runs narrowed it down:
+
+- The outer object is the Trinity file/archive manager (vtable main+0x443ffd0); main+0x14fd2d8 is its slot +0x58.
+- The inner object is a global singleton (slot main+0x46d8288) of the Wwise sound engine's setup: the surrounding code
+  names `Wwise_Motion`, `audio/fb/...` config paths and `bankName%d`.
+- main+0x14ff4dc looks an entry up by FNV-1a 64 hash in a registry held at the singleton's +0x58. The registry is
+  never created: none of the 33 stores to +0x58 in the 139 functions that load the singleton runs before the crash.
+
+Working theory: the registry is filled when the audio configs are loaded from the pack, on a worker thread that on
+the console finishes before this step and on the host has not run or is blocked.

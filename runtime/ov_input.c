@@ -513,3 +513,58 @@ HOST_OVERRIDE("_ZN2nn3hid6detail22GetSixAxisSensorStatesEPiPNS0_18SixAxisSensorS
               ov_six_states);
 HOST_OVERRIDE("_ZN2nn3hid6detail21GetSixAxisSensorStateEPNS0_18SixAxisSensorStateERKNS0_19SixAxisSensorHandleE",
               ov_six_state);
+
+// ---- Public nn::hid vibration and six-axis entry points (SDK 13: Scarlet/Violet). TotK's main called the detail::
+// functions above; Scarlet's calls these wrappers, which in the lifted SDK reach the hid service the host does not
+// have. Where the signature matches, the wrapper takes the detail:: implementation.
+
+// int GetSixAxisSensorStates(SixAxisSensorState *out, int count, const SixAxisSensorHandle &): the count written
+static void ov_six_states_public(Cpu *c) {
+    ret_x(c, (uint64_t)(int64_t)six_fill(arg_p(c, 0), (int)arg_x(c, 1), arg_p(c, 2), "GetSixAxisSensorStates"));
+}
+// bool IsSixAxisSensorAtRest(const SixAxisSensorHandle &): the host's motion source never reports the at-rest state
+// the console's firmware detects; the game only uses it to recalibrate.
+static void ov_six_at_rest(Cpu *c) { ret_x(c, 0); }
+// Sensor fusion and zero-drift settings tune the console's own fusion filter; the host's motion source keeps its own.
+// The game's values are kept so it reads back what it set.
+static uint8_t six_fusion_on = 1;
+static uint32_t six_drift_mode = 1;                          // GyroscopeZeroDriftMode_Standard
+static float six_fusion_power = 0.03f, six_fusion_range = 0.4f;
+// void EnableSixAxisSensorFusion(const SixAxisSensorHandle &, bool)
+static void ov_six_fusion_enable(Cpu *c) { six_fusion_on = (uint8_t)(arg_x(c, 1) & 1); }
+// bool IsSixAxisSensorFusionEnabled(const SixAxisSensorHandle &)
+static void ov_six_fusion_enabled(Cpu *c) { ret_x(c, six_fusion_on); }
+// GyroscopeZeroDriftMode GetGyroscopeZeroDriftMode(const SixAxisSensorHandle &)
+static void ov_six_drift_get(Cpu *c) { ret_x(c, six_drift_mode); }
+// void SetGyroscopeZeroDriftMode(const SixAxisSensorHandle &, const GyroscopeZeroDriftMode &)
+static void ov_six_drift_set(Cpu *c) {
+    const uint32_t *mode = arg_p(c, 1);
+    if (mode) six_drift_mode = *mode;
+}
+// void GetSixAxisSensorFusionParameters(float *revise_power, float *revise_range, const SixAxisSensorHandle &)
+static void ov_six_fusion_get(Cpu *c) {
+    float *power = arg_p(c, 0), *range = arg_p(c, 1);
+    if (power) *power = six_fusion_power;
+    if (range) *range = six_fusion_range;
+}
+// void SetSixAxisSensorFusionParameters(const SixAxisSensorHandle &, float revise_power, float revise_range)
+static void ov_six_fusion_set(Cpu *c) {
+    six_fusion_power = arg_s(c, 0);
+    six_fusion_range = arg_s(c, 1);
+}
+
+HOST_OVERRIDE("_ZN2nn3hid25InitializeVibrationDeviceERKNS0_21VibrationDeviceHandleE", ov_vib_init);
+HOST_OVERRIDE("_ZN2nn3hid18SendVibrationValueERKNS0_21VibrationDeviceHandleERKNS0_14VibrationValueE", ov_vib_send);
+HOST_OVERRIDE("_ZN2nn3hid18StartSixAxisSensorERKNS0_19SixAxisSensorHandleE", ov_six_start);
+HOST_OVERRIDE("_ZN2nn3hid17StopSixAxisSensorERKNS0_19SixAxisSensorHandleE", ov_six_stop);
+HOST_OVERRIDE("_ZN2nn3hid21GetSixAxisSensorStateEPNS0_18SixAxisSensorStateERKNS0_19SixAxisSensorHandleE", ov_six_state);
+HOST_OVERRIDE("_ZN2nn3hid22GetSixAxisSensorStatesEPNS0_18SixAxisSensorStateEiRKNS0_19SixAxisSensorHandleE",
+              ov_six_states_public);
+HOST_OVERRIDE("_ZN2nn3hid21IsSixAxisSensorAtRestERKNS0_19SixAxisSensorHandleE", ov_six_at_rest);
+HOST_OVERRIDE("_ZN2nn3hid25EnableSixAxisSensorFusionERKNS0_19SixAxisSensorHandleEb", ov_six_fusion_enable);
+HOST_OVERRIDE("_ZN2nn3hid28IsSixAxisSensorFusionEnabledERKNS0_19SixAxisSensorHandleE", ov_six_fusion_enabled);
+HOST_OVERRIDE("_ZN2nn3hid25GetGyroscopeZeroDriftModeERKNS0_19SixAxisSensorHandleE", ov_six_drift_get);
+HOST_OVERRIDE("_ZN2nn3hid25SetGyroscopeZeroDriftModeERKNS0_19SixAxisSensorHandleERKNS0_22GyroscopeZeroDriftModeE",
+              ov_six_drift_set);
+HOST_OVERRIDE("_ZN2nn3hid32GetSixAxisSensorFusionParametersEPfS1_RKNS0_19SixAxisSensorHandleE", ov_six_fusion_get);
+HOST_OVERRIDE("_ZN2nn3hid32SetSixAxisSensorFusionParametersERKNS0_19SixAxisSensorHandleEff", ov_six_fusion_set);

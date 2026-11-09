@@ -1,7 +1,7 @@
 // Trace points: debugging aid for porting a game. A `trace <module> <address>` line in the patch file
 // (recomp/patches.py) lifts rt_trace_point(c, address) in front of that instruction; this logs the guest registers
-// there: the arguments x0-x7 at a function entry, the result x0 after a call, x8, the callee-saved x19-x28, the
-// return address and the stack pointer. Each point logs its first TERA_TRACE_LIMIT passes (default 16), so a point inside a loop does not flood
+// there: every general register (x0-x7 arguments at a function entry, x0 the result after a call), the return
+// address and the stack pointer. Each point logs its first TERA_TRACE_LIMIT passes (default 16), so a point inside a loop does not flood
 // the log. It reads registers only; the game runs on unchanged.
 #include <stdint.h>
 #include <stdlib.h>
@@ -44,6 +44,11 @@ void rt_trace_point(Cpu *c, uint64_t pc) {
            (unsigned long long)c->x[22], (unsigned long long)c->x[23], (unsigned long long)c->x[24],
            (unsigned long long)c->x[25], (unsigned long long)c->x[26], (unsigned long long)c->x[27],
            (unsigned long long)c->x[28], lr, (unsigned long long)c->sp);
+    rt_log("trace   x9 %llx x10 %llx x11 %llx x12 %llx x13 %llx x14 %llx x15 %llx x16 %llx x17 %llx x18 %llx",
+           (unsigned long long)c->x[9], (unsigned long long)c->x[10], (unsigned long long)c->x[11],
+           (unsigned long long)c->x[12], (unsigned long long)c->x[13], (unsigned long long)c->x[14],
+           (unsigned long long)c->x[15], (unsigned long long)c->x[16], (unsigned long long)c->x[17],
+           (unsigned long long)c->x[18]);
     uint64_t obj[16];
     if (c->x[19] && plat_mem_read(c->x[19], obj, sizeof obj)) {
         char vt[128];
