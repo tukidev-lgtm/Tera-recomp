@@ -101,10 +101,12 @@ static void ov_states_full_key(Cpu *c) { npad_states(c, STYLE_FULL_KEY); }
 static void ov_states_handheld(Cpu *c) { npad_states(c, STYLE_HANDHELD); }
 static void ov_states_joycon(Cpu *c) { npad_states(c, 0); }
 
-// void SetNpadJoyHoldType(NpadJoyHoldType type)
+// void SetNpadJoyHoldType(NpadJoyHoldType type); the value is kept for GetNpadJoyHoldType
+static int32_t hold_type = 1;   // NpadJoyHoldType_Horizontal, the system default
 static void ov_hold_type(Cpu *c) {
     int64_t t = (int32_t)arg_x(c, 0);
     if (t < 0 || t > 1) rt_fatal("nn::hid::SetNpadJoyHoldType: invalid hold type %lld", (long long)t);
+    hold_type = (int32_t)t;
 }
 
 // void DisconnectNpad(const NpadIdType &id): only the controller in use (handheld mode disconnects player 1)
@@ -568,3 +570,117 @@ HOST_OVERRIDE("_ZN2nn3hid25SetGyroscopeZeroDriftModeERKNS0_19SixAxisSensorHandle
               ov_six_drift_set);
 HOST_OVERRIDE("_ZN2nn3hid32GetSixAxisSensorFusionParametersEPfS1_RKNS0_19SixAxisSensorHandleE", ov_six_fusion_get);
 HOST_OVERRIDE("_ZN2nn3hid32SetSixAxisSensorFusionParametersERKNS0_19SixAxisSensorHandleEff", ov_six_fusion_set);
+
+
+// ---- More SDK 13 nn::hid entry points (Scarlet/Violet). TotK never called these; in the lifted SDK each opens the hid
+// service the host does not have. The host has one full controller, so Joy-Con assignment calls change nothing and
+// the controller's settings are kept only to be read back.
+
+// void GetNpadState(<State> *out, const NpadIdType &id): GetNpadStates with one state
+static void npad_state_one(Cpu *c, uint32_t want, const char *fn) {
+    NpadState *out = arg_p(c, 0);
+    uint32_t id = *need_id(c, 1, fn);
+    if (!out) rt_fatal("nn::hid::%s: null output", fn);
+    plat_mutex_lock(&lock);
+    NpadState s = {.sampling = ++sample};
+    int live = want && enabled && allowed && id == pad_id() && want == pad_style() && (styles & want);
+    plat_mutex_unlock(&lock);
+    if (live) {
+        s.attributes = ATTR_CONNECTED;
+        input_poll(&s.buttons, &s.lx, &s.ly, &s.rx, &s.ry);
+    }
+    *out = s;
+}
+static void ov_state_full_key(Cpu *c) { npad_state_one(c, STYLE_FULL_KEY, "GetNpadState"); }
+static void ov_state_handheld(Cpu *c) { npad_state_one(c, STYLE_HANDHELD, "GetNpadState"); }
+static void ov_state_joycon(Cpu *c) { npad_state_one(c, 0, "GetNpadState"); }
+
+// NpadJoyHoldType GetNpadJoyHoldType()
+static void ov_get_hold_type(Cpu *c) { ret_x(c, (uint32_t)hold_type); }
+// NpadStyleSet GetSupportedNpadStyleSet()
+static void ov_get_supported_styles(Cpu *c) {
+    plat_mutex_lock_shared(&lock);
+    uint32_t v = styles;
+    plat_mutex_unlock_shared(&lock);
+    ret_x(c, v);
+}
+
+static int32_t handheld_mode;        // NpadHandheldActivationMode_Dual
+static int32_t communication_mode = 3;   // NpadCommunicationMode_Default
+// void SetNpadHandheldActivationMode(NpadHandheldActivationMode) / GetNpadHandheldActivationMode()
+static void ov_set_handheld_mode(Cpu *c) { handheld_mode = (int32_t)arg_x(c, 0); }
+static void ov_get_handheld_mode(Cpu *c) { ret_x(c, (uint32_t)handheld_mode); }
+// void SetNpadCommunicationMode(NpadCommunicationMode) / GetNpadCommunicationMode()
+static void ov_set_comm_mode(Cpu *c) { communication_mode = (int32_t)arg_x(c, 0); }
+static void ov_get_comm_mode(Cpu *c) { ret_x(c, (uint32_t)communication_mode); }
+
+// void BindNpadStyleSetUpdateEvent(const NpadIdType &, os::SystemEventType *, os::EventClearMode): the style set
+// never changes while the game runs; the event is signalled once so the game reads the styles at start.
+static void ov_bind_style_event(Cpu *c) {
+    (void)need_id(c, 0, "BindNpadStyleSetUpdateEvent");
+    uint64_t ev = arg_x(c, 1);
+    if (!ev) rt_fatal("nn::hid::BindNpadStyleSetUpdateEvent: null event");
+    kern_bind_system_event(c, ev, (int)(arg_x(c, 2) & 1));   // EventClearMode_AutoClear = 1
+    kern_signal_system_event(ev);
+}
+
+// Result GetNpadControllerColor(NpadControllerColor *out, const NpadIdType &) and the Joy-Con pair overload
+// (NpadControllerColor *left, NpadControllerColor *right, const NpadIdType &): a neutral grey body and darker buttons.
+typedef struct { uint32_t main, sub; } NpadColor;
+static const NpadColor pad_color = {0xff3c3c3cu, 0xff1e1e1eu};
+static void ov_controller_color(Cpu *c) {
+    NpadColor *out = arg_p(c, 0);
+    (void)need_id(c, 1, "GetNpadControllerColor");
+    if (out) *out = pad_color;
+    ret_x(c, 0);
+}
+static void ov_controller_color_pair(Cpu *c) {
+    NpadColor *l = arg_p(c, 0), *r = arg_p(c, 1);
+    (void)need_id(c, 2, "GetNpadControllerColor");
+    if (l) *l = pad_color;
+    if (r) *r = pad_color;
+    ret_x(c, 0);
+}
+// uint64_t GetPlayerLedPattern(const NpadIdType &id): player n lights the first n LEDs (No1..No4), handheld none
+static void ov_player_led(Cpu *c) {
+    uint32_t id = *need_id(c, 0, "GetPlayerLedPattern");
+    ret_x(c, id < 4 ? (1u << (id + 1)) - 1 : 0);
+}
+// NpadJoyAssignmentMode GetNpadJoyAssignment(const NpadIdType &): Dual
+static void ov_joy_assignment(Cpu *c) { (void)c; ret_x(c, 0); }
+// void SetNpadJoyAssignmentModeDual / SetNpadJoyAssignmentModeSingle(id[, type]) / SwapNpadAssignment(id, id) /
+// Start/StopLrAssignmentMode / InitializeTouchScreen / ShowControllerStrapGuide: nothing to do with one full controller.
+static void ov_hid_nothing(Cpu *c) { (void)c; }
+// bool SetNpadJoyAssignmentModeSingle(NpadIdType *out, const NpadIdType &, NpadJoyDeviceType): no other controller
+// was split off
+static void ov_joy_single_out(Cpu *c) { ret_x(c, 0); }
+// Result MergeSingleJoyAsDualJoy(const NpadIdType &, const NpadIdType &)
+static void ov_merge_joy(Cpu *c) { ret_x(c, 0); }
+
+HOST_OVERRIDE("_ZN2nn3hid12GetNpadStateEPNS0_16NpadFullKeyStateERKj", ov_state_full_key);
+HOST_OVERRIDE("_ZN2nn3hid12GetNpadStateEPNS0_17NpadHandheldStateERKj", ov_state_handheld);
+HOST_OVERRIDE("_ZN2nn3hid12GetNpadStateEPNS0_16NpadJoyDualStateERKj", ov_state_joycon);
+HOST_OVERRIDE("_ZN2nn3hid12GetNpadStateEPNS0_16NpadJoyLeftStateERKj", ov_state_joycon);
+HOST_OVERRIDE("_ZN2nn3hid12GetNpadStateEPNS0_17NpadJoyRightStateERKj", ov_state_joycon);
+HOST_OVERRIDE("_ZN2nn3hid18GetNpadJoyHoldTypeEv", ov_get_hold_type);
+HOST_OVERRIDE("_ZN2nn3hid24GetSupportedNpadStyleSetEv", ov_get_supported_styles);
+HOST_OVERRIDE("_ZN2nn3hid29SetNpadHandheldActivationModeENS0_26NpadHandheldActivationModeE", ov_set_handheld_mode);
+HOST_OVERRIDE("_ZN2nn3hid29GetNpadHandheldActivationModeEv", ov_get_handheld_mode);
+HOST_OVERRIDE("_ZN2nn3hid24SetNpadCommunicationModeENS0_21NpadCommunicationModeE", ov_set_comm_mode);
+HOST_OVERRIDE("_ZN2nn3hid24GetNpadCommunicationModeEv", ov_get_comm_mode);
+HOST_OVERRIDE("_ZN2nn3hid27BindNpadStyleSetUpdateEventERKjPNS_2os15SystemEventTypeENS3_14EventClearModeE",
+              ov_bind_style_event);
+HOST_OVERRIDE("_ZN2nn3hid22GetNpadControllerColorEPNS0_19NpadControllerColorERKj", ov_controller_color);
+HOST_OVERRIDE("_ZN2nn3hid22GetNpadControllerColorEPNS0_19NpadControllerColorES2_RKj", ov_controller_color_pair);
+HOST_OVERRIDE("_ZN2nn3hid19GetPlayerLedPatternERKj", ov_player_led);
+HOST_OVERRIDE("_ZN2nn3hid20GetNpadJoyAssignmentERKj", ov_joy_assignment);
+HOST_OVERRIDE("_ZN2nn3hid28SetNpadJoyAssignmentModeDualERKj", ov_hid_nothing);
+HOST_OVERRIDE("_ZN2nn3hid30SetNpadJoyAssignmentModeSingleERKj", ov_hid_nothing);
+HOST_OVERRIDE("_ZN2nn3hid30SetNpadJoyAssignmentModeSingleERKjNS0_17NpadJoyDeviceTypeE", ov_hid_nothing);
+HOST_OVERRIDE("_ZN2nn3hid30SetNpadJoyAssignmentModeSingleEPjRKjNS0_17NpadJoyDeviceTypeE", ov_joy_single_out);
+HOST_OVERRIDE("_ZN2nn3hid23MergeSingleJoyAsDualJoyERKjS2_", ov_merge_joy);
+HOST_OVERRIDE("_ZN2nn3hid18SwapNpadAssignmentERKjS2_", ov_hid_nothing);
+HOST_OVERRIDE("_ZN2nn3hid21StartLrAssignmentModeEv", ov_hid_nothing);
+HOST_OVERRIDE("_ZN2nn3hid20StopLrAssignmentModeEv", ov_hid_nothing);
+HOST_OVERRIDE("_ZN2nn3hid21InitializeTouchScreenEv", ov_hid_nothing);
+HOST_OVERRIDE("_ZN2nn3hid24ShowControllerStrapGuideEv", ov_hid_nothing);
