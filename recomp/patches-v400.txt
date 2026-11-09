@@ -8,10 +8,10 @@ trace main 14ff4dc 14ff5cc 14fe7e8
 # The failing object (vtable main+0x4500fc0, multiple inheritance) is freshly constructed: +0x38..+0x78 all zero.
 # The outer object is 0x...874000, vtable main+0x443ffd0: the same Trinity file/archive manager that mounted the RomFS
 # and read data.trpfd (main+0x11e1a60). Its virtual main+0x14fd2d8 (1348 instructions) obtains the inner object.
-# The inner object is a global singleton (slot main+0x46d8288) of the Wwise setup. None of the 33 `str` to +0x58 in
-# the 139 functions that load it ran before the crash; the crash report's thread dump shows a Wwise thread (0x101d)
-# still loading banks (PL.bnk) when the main thread crashes. The only other writer of +0x58 found is a `stp` to
-# +0x50 in main+0x11267bc: entry and the store.
-trace main 11267bc 1126954
-# Race test: TERA_TRACE_SLEEP=11bcec4:3000 holds the main thread before the failing virtual call.
-trace main 11bcec4
+# The inner object is the Wwise setup's global singleton (GOT slot main+0x46d8288). On Ryujinx (tools/gdb/inspect.py)
+# its +0x38 is 1 and +0x58 holds a root node of class vtable main+0x4501468; on the port both are 0. main+0x14ff4dc
+# is find-or-create under that root (children made by the constructor main+0x14ff98c) and returns null without a root.
+# The root's constructor is reached through main+0x14fd2d8 -> (0x14fdd90) 0x1505338 -> (0x15054f4) 0x1509880 ->
+# (0x1509aac) 0x1509d74 -> (0x1509d84) 0x1509e38 -> (0x1509f04) 0x14ff98c; 0x1505338 returns 0 on the port.
+# Entry and the return of each call along that chain:
+trace main 1505338 15054f8 1509880 1509ab0 1509d74 1509d88 1509e38 1509f08 14ff98c
