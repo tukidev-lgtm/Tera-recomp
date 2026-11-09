@@ -15,3 +15,6 @@ trace main 14ff4dc 14ff5cc 14fe7e8
 # (0x1509aac) 0x1509d74 -> (0x1509d84) 0x1509e38 -> (0x1509f04) 0x14ff98c; 0x1505338 returns 0 on the port.
 # Entry and the return of each call along that chain:
 trace main 1505338 15054f8 1509880 1509ab0 1509d74 1509d88 1509e38 1509f08 14ff98c
+# Run 1 of that chain: only main+0x1505338's entry fires, so it returns early through one of its two checks:
+# main+0x1507028([singleton+0x200], name) at 0x15053ac, or main+0x1508a4c(singleton, x21) at 0x15054e4.
+trace main 1507028 15053b0 15054e8
