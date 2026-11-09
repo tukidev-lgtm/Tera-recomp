@@ -1,7 +1,7 @@
 // Trace points: debugging aid for porting a game. A `trace <module> <address>` line in the patch file
 // (recomp/patches.py) lifts rt_trace_point(c, address) in front of that instruction; this logs the guest registers
-// there: the arguments x0-x7 at a function entry, the result x0 after a call, the return address and the stack
-// pointer. Each point logs its first TERA_TRACE_LIMIT passes (default 16), so a point inside a loop does not flood
+// there: the arguments x0-x7 at a function entry, the result x0 after a call, x8, the callee-saved x19-x28, the
+// return address and the stack pointer. Each point logs its first TERA_TRACE_LIMIT passes (default 16), so a point inside a loop does not flood
 // the log. It reads registers only; the game runs on unchanged.
 #include <stdint.h>
 #include <stdlib.h>
@@ -35,10 +35,26 @@ void rt_trace_point(Cpu *c, uint64_t pc) {
     char at[128], lr[128];
     ldr_describe(pc, at, sizeof at);
     ldr_describe(c->x[30] - 4, lr, sizeof lr);
-    rt_log("trace %s #%u: x0 %llx x1 %llx x2 %llx x3 %llx x4 %llx x5 %llx x6 %llx x7 %llx | x19 %llx x20 %llx | "
-           "lr %s sp %llx",
+    rt_log("trace %s #%u: x0 %llx x1 %llx x2 %llx x3 %llx x4 %llx x5 %llx x6 %llx x7 %llx x8 %llx | x19 %llx x20 %llx "
+           "x21 %llx x22 %llx x23 %llx x24 %llx x25 %llx x26 %llx x27 %llx x28 %llx | lr %s sp %llx",
            at, n, (unsigned long long)c->x[0], (unsigned long long)c->x[1], (unsigned long long)c->x[2],
            (unsigned long long)c->x[3], (unsigned long long)c->x[4], (unsigned long long)c->x[5],
-           (unsigned long long)c->x[6], (unsigned long long)c->x[7], (unsigned long long)c->x[19],
-           (unsigned long long)c->x[20], lr, (unsigned long long)c->sp);
+           (unsigned long long)c->x[6], (unsigned long long)c->x[7], (unsigned long long)c->x[8],
+           (unsigned long long)c->x[19], (unsigned long long)c->x[20], (unsigned long long)c->x[21],
+           (unsigned long long)c->x[22], (unsigned long long)c->x[23], (unsigned long long)c->x[24],
+           (unsigned long long)c->x[25], (unsigned long long)c->x[26], (unsigned long long)c->x[27],
+           (unsigned long long)c->x[28], lr, (unsigned long long)c->sp);
+    uint64_t obj[16];
+    if (c->x[19] && plat_mem_read(c->x[19], obj, sizeof obj)) {
+        char vt[128];
+        ldr_describe(obj[0], vt, sizeof vt);
+        rt_log("trace   [x19 %llx] vtable %s | +08 %llx +10 %llx +18 %llx +20 %llx +28 %llx +30 %llx +38 %llx +40 %llx "
+               "+48 %llx +50 %llx +58 %llx +60 %llx +68 %llx +70 %llx +78 %llx",
+               (unsigned long long)c->x[19], vt, (unsigned long long)obj[1], (unsigned long long)obj[2],
+               (unsigned long long)obj[3], (unsigned long long)obj[4], (unsigned long long)obj[5],
+               (unsigned long long)obj[6], (unsigned long long)obj[7], (unsigned long long)obj[8],
+               (unsigned long long)obj[9], (unsigned long long)obj[10], (unsigned long long)obj[11],
+               (unsigned long long)obj[12], (unsigned long long)obj[13], (unsigned long long)obj[14],
+               (unsigned long long)obj[15]);
+    }
 }

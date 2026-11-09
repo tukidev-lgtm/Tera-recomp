@@ -1,5 +1,10 @@
 # Patch file for Pokemon Scarlet 4.0.0 main (recomp/patches.py). No code patches yet.
 
 # Debugging trace points (runtime/tracepoint.c). Remove before a release build.
-# Boot: nnMain's init chain stops on a null object from main+0x14ff4dc (its result + 0xe0 is locked at main+0x14fe800).
+# Boot: nnMain's init chain (main+0x11bcc84) calls the object's virtual main+0x14fd2d8, which locks a field of the
+# null result of main+0x14ff4dc: that object's +0x58 is empty. main+0x11e1a60 (early in the same chain) was checked
+# and is not it: its flag reads 1 and it fills +0x58 of another object.
 trace main 14ff4dc 14ff5cc 14fe7e8
+# The failing object (vtable main+0x4500fc0, multiple inheritance) is freshly constructed: +0x38..+0x78 all zero.
+# Next: the outer object the init chain calls through slot +0x58 (main+0x11bcec4) and main+0x14fd2d8's own this.
+trace main 11bcec4 14fd2d8
