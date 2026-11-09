@@ -30,9 +30,9 @@ Generic to any Switch title and reused as is, then extended where Scarlet calls 
 
 ## Phases
 
-0. Repository, config and content rules. **(done when committed)**
-1. Extract ExeFS/RomFS of Scarlet from the user's NSP; record SDK version, module sizes, imports; compare with TotK.
-2. Lift all modules to C and compile them (no run yet). Count unhandled instructions and OS sites.
+0. Repository, config and content rules. **Done.**
+1. Extract ExeFS/RomFS of Scarlet from the user's NSP; record SDK version, module sizes, imports; compare with TotK.  **Done:** [phase1-analysis.md](phase1-analysis.md).
+2. Lift all modules to C and compile them (no run yet). Count unhandled instructions and OS sites.  **Done:** [phase2-build.md](phase2-build.md).
 3. Boot: reach `nnMain`, satisfy every `nn::*` / IPC call the game makes until the first NVN submit.
 4. First frame on screen; title screen; input.
 5. In game: new save, first area; audio; stability runs.

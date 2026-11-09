@@ -1,0 +1,16 @@
+{
+  "_comment": "Pokemon Scarlet 4.0.0 ExeFS hashes, from a dump of the base game with update 4.0.0 applied. RomFS not recorded yet.",
+  "title_id": "0100A3D008C5C000",
+  "version": 786432,
+  "display_version": "4.0.0",
+  "exefs_sha256": {
+    "main": "f5f4771ff1e37ac55dcfe5698aa956a4762184b864727ed61e74b1867d1dbfc2",
+    "main.npdm": "edf2bbf506a3619ccb1702d390dda609959b5192646791a6374dbee232322dc5",
+    "rtld": "3e9fefe2e12bd1ade68618c73c5cca79d7bc67bb0ec293b2e92a20ffb81c77f6",
+    "sdk": "526b093704bff89fae71ee4c4f58f58ad5baf09df0fef4f5c05dd23ce0138517",
+    "subsdk0": "f68908a29e021f26ea4a63e1be927162a5aa2f02c72d83d69317ea30326104f2"
+  },
+  "rewritten_sha256": {},
+  "romfs": null,
+  "shared_fonts_sha256": {}
+}
