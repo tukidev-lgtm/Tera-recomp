@@ -9,9 +9,10 @@ Scarlet 4.0.0 on the TotK runtime, from the first run on. Each step names what s
 | null read in `nn::aoc::CountAddOnContent` | DLC queries TotK never made | overrides in `ov_system.c` |
 | NVN `TexturePoolGetSize`, `BufferBuilderGetSize`, ... | 101 NVN procs TotK never called | `nvn_sv.c` (getters, debug controls) |
 | `set` service | `nn::settings` language code helpers | overrides in `ov_system.c` |
-| null `+0xe0` locked at main+0x14fe800 | open, see below | |
+| null `+0xe0` locked at main+0x14fe800 | `GetEntryType("data:/audio/wwise/bin/Switch/")`: a directory path with its trailing `/` became `...Switch//` and was not found, so the Wwise setup never built its root node | `romfs_entry_type` drops trailing `/` |
+| `hid` service | `nn::hid::SetNpadHandheldActivationMode` and other hid calls TotK never made | open |
 
-## Open: the null object at main+0x14fe800
+## Solved: the null object at main+0x14fe800
 
 Boot path: `nnMain` -> main+0x165e87c -> main+0x92bdc0 -> main+0x11acbb0 -> main+0x11bcc84 (init chain).
 
@@ -48,3 +49,9 @@ no bank loads during the pause; PM.bnk opens at 3.41 s, right after the main thr
 The bank loads are started by the failing call itself, so this is not a race with a loader thread: the registry at the
 singleton's +0x58 is created by an initialization step that never runs on the host. Finding it needs a run where the
 game works: a write watchpoint on the singleton's +0x58 in an emulator's debugger.
+
+Found: main+0x1508a4c checks the Wwise bank directory `data:/audio/wwise/bin/Switch/` through main+0x15096ec, which
+asks GetEntryType. runtime/romfs.c appended '/' to a path that already ended in one, so the directory was not found,
+main+0x1505338 stopped before building the root node and the find-or-create in main+0x14ff4dc returned null. With the
+trailing '/' handled the root is built and the boot goes on (the Wwise children are created, then the hid service).
+The comparison with Ryujinx (tools/gdb/inspect.py) pointed at the missing root node.

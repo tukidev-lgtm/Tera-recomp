@@ -1330,8 +1330,16 @@ uint32_t romfs_entry_type(int *out, const char *path) {
         *out = FS_ENTRY_FILE;
         return 0;
     }
+    // A directory is asked for with or without its trailing '/' ("data:/audio/wwise/bin/Switch/" in Scarlet): folder_exists
+    // wants exactly one, so drop any the path ends with before adding it.
+    size_t len = strlen(p);
+    while (len && p[len - 1] == '/') len--;
+    if (!len) {   // the RomFS root
+        *out = FS_ENTRY_DIRECTORY;
+        return 0;
+    }
     char dir[4096];
-    if (snprintf(dir, sizeof dir, "%s/", p) >= (int)sizeof dir) return FS_R_INVALID;
+    if (snprintf(dir, sizeof dir, "%.*s/", (int)len, p) >= (int)sizeof dir) return FS_R_INVALID;
     if (folder_exists(dir)) {
         *out = FS_ENTRY_DIRECTORY;
         return 0;
