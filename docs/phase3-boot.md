@@ -38,3 +38,7 @@ variable; thread 0x101d (priority 43, code around main+0x339e414) is running a h
 (`PL.bnk`) at the moment the main thread crashes. The main thread's main+0x14fd2d8 calls no wait function (only
 mutexes, `__cxa_guard_*`, bsearch, string functions and nn::audio::AcquireAudioDeviceNotificationForOutput), so the
 ordering against the bank loader has to come from earlier in the init chain.
+
+main+0x11267bc (the one `stp` that writes +0x58) does not run before the crash either. Timeline from the log: PM.bnk
+opened at 0.488 s, the main thread crashes, PL.bnk opened at 0.506 s. Static search has run out of candidates: the
+registry's creator has to be found from a run where the game works (a debugger watchpoint on the singleton's +0x58).
