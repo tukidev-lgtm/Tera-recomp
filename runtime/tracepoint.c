@@ -16,6 +16,17 @@
 static struct { uint64_t pc; uint32_t n; } seen[SLOTS];
 static PlatMutex lock = PLAT_MUTEX_INIT;
 static int limit = -1;
+
+// The text at a, when a points at a NUL-terminated run of at least 3 printable ASCII bytes (up to 96 shown).
+static int text_at(uint64_t a, char *out, int cap) {
+    if (a < 0x10000) return 0;
+    uint8_t b[97];
+    if (!plat_mem_read(a, b, sizeof b - 1)) return 0;
+    int n = 0;
+    while (n < 96 && n < cap - 1 && b[n] >= 0x20 && b[n] < 0x7f) out[n] = (char)b[n], n++;
+    out[n] = 0;
+    return n >= 3 && (n == 96 || b[n] == 0);
+}
 static uint64_t sleep_pc;
 static uint32_t sleep_ms;
 static int sleep_done;
@@ -71,6 +82,11 @@ void rt_trace_point(Cpu *c, uint64_t pc) {
            (unsigned long long)c->x[12], (unsigned long long)c->x[13], (unsigned long long)c->x[14],
            (unsigned long long)c->x[15], (unsigned long long)c->x[16], (unsigned long long)c->x[17],
            (unsigned long long)c->x[18]);
+    static const int text_regs[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28};
+    for (unsigned k = 0; k < sizeof text_regs / sizeof *text_regs; k++) {
+        char t[100];
+        if (text_at(c->x[text_regs[k]], t, sizeof t)) rt_log("trace   x%d -> \"%s\"", text_regs[k], t);
+    }
     uint64_t obj[16];
     if (c->x[19] && plat_mem_read(c->x[19], obj, sizeof obj)) {
         char vt[128];

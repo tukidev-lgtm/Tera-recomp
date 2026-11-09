@@ -18,3 +18,6 @@ trace main 1505338 15054f8 1509880 1509ab0 1509d74 1509d88 1509e38 1509f08 14ff9
 # Run 1 of that chain: only main+0x1505338's entry fires, so it returns early through one of its two checks:
 # main+0x1507028([singleton+0x200], name) at 0x15053ac, or main+0x1508a4c(singleton, x21) at 0x15054e4.
 trace main 1507028 15053b0 15054e8
+# Run 2: main+0x1507028 returns 1, main+0x1508a4c returns 0. main+0x1508a4c(singleton, holder): holder->+0x38/+0x40 is
+# a directory path that must end in '/', then main+0x15096ec(singleton, path) decides; more checks follow. Its decisions:
+trace main 1508a74 1508a94 1508ac8 1508ad4 1508b2c 1508b84 1508bb8 1508be4 1508c60 1508c88 1508ca0 1508dcc 1508df0
