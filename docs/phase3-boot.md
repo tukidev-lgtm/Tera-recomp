@@ -42,3 +42,9 @@ ordering against the bank loader has to come from earlier in the init chain.
 main+0x11267bc (the one `stp` that writes +0x58) does not run before the crash either. Timeline from the log: PM.bnk
 opened at 0.488 s, the main thread crashes, PL.bnk opened at 0.506 s. Static search has run out of candidates: the
 registry's creator has to be found from a run where the game works (a debugger watchpoint on the singleton's +0x58).
+
+Race test (`TERA_TRACE_SLEEP=11bcec4:3000`, the main thread held 3 s before the failing call with its core given up):
+no bank loads during the pause; PM.bnk opens at 3.41 s, right after the main thread resumes, and the crash follows.
+The bank loads are started by the failing call itself, so this is not a race with a loader thread: the registry at the
+singleton's +0x58 is created by an initialization step that never runs on the host. Finding it needs a run where the
+game works: a write watchpoint on the singleton's +0x58 in an emulator's debugger.

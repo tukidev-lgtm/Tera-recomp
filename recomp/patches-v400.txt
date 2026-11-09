@@ -13,3 +13,5 @@ trace main 14ff4dc 14ff5cc 14fe7e8
 # still loading banks (PL.bnk) when the main thread crashes. The only other writer of +0x58 found is a `stp` to
 # +0x50 in main+0x11267bc: entry and the store.
 trace main 11267bc 1126954
+# Race test: TERA_TRACE_SLEEP=11bcec4:3000 holds the main thread before the failing virtual call.
+trace main 11bcec4

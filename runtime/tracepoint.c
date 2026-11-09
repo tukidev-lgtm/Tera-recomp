@@ -8,6 +8,7 @@
 
 #include "cfg.h"
 #include "host.h"
+#include "layout.h"
 #include "platform/platform.h"
 
 #define SLOTS 1024   // distinct trace points; more than any patch file should name
@@ -15,13 +16,27 @@
 static struct { uint64_t pc; uint32_t n; } seen[SLOTS];
 static PlatMutex lock = PLAT_MUTEX_INIT;
 static int limit = -1;
+static uint64_t sleep_pc;
+static uint32_t sleep_ms;
+static int sleep_done;
 
 void rt_trace_point(Cpu *c, uint64_t pc) {
     plat_mutex_lock(&lock);
     if (limit < 0) {
         const char *v = cfg_get("TERA_TRACE_LIMIT");
         limit = v && *v ? atoi(v) : 16;
+        const char *z = cfg_get("TERA_TRACE_SLEEP");
+        if (z && *z) {
+            char *end;
+            uint64_t off = strtoull(z, &end, 16);
+            if (*end == ':') {
+                sleep_pc = MOD_MAIN_BASE + off;
+                sleep_ms = (uint32_t)strtoul(end + 1, NULL, 10);
+            }
+        }
     }
+    int do_sleep = pc == sleep_pc && !sleep_done;
+    if (do_sleep) sleep_done = 1;
     uint32_t h = (uint32_t)(pc >> 2) & (SLOTS - 1), n = 0;
     for (int k = 0; k < SLOTS; k++, h = (h + 1) & (SLOTS - 1)) {
         if (!seen[h].pc) seen[h].pc = pc;
@@ -31,6 +46,13 @@ void rt_trace_point(Cpu *c, uint64_t pc) {
         }
     }
     plat_mutex_unlock(&lock);
+    if (do_sleep) {
+        rt_log("trace: sleeping %u ms at %#llx (TERA_TRACE_SLEEP), core given up", sleep_ms, (unsigned long long)pc);
+        int away = kern_core_away();
+        plat_sleep_ms(sleep_ms);
+        kern_core_back(&away);
+        rt_log("trace: woke at %#llx", (unsigned long long)pc);
+    }
     if (!n || (int)n > limit) return;
     char at[128], lr[128];
     ldr_describe(pc, at, sizeof at);
