@@ -1,0 +1,5 @@
+# Patch file for Pokemon Scarlet 4.0.0 main (recomp/patches.py). No code patches yet.
+
+# Debugging trace points (runtime/tracepoint.c). Remove before a release build.
+# Boot: nnMain's init chain stops on a null object from main+0x14ff4dc (its result + 0xe0 is locked at main+0x14fe800).
+trace main 14ff4dc 14ff5cc 14fe7e8

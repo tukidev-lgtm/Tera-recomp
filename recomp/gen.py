@@ -211,11 +211,12 @@ def partition(est, max_fns, max_bytes, big_fn):
 class Emitter:
     """C for the functions of one module. starts is the set of every function start of the module."""
 
-    def __init__(self, mod, starts, patched=None, reg_locals=regs.LOCALS, callee_saved=True, spins=None):
+    def __init__(self, mod, starts, patched=None, reg_locals=regs.LOCALS, callee_saved=True, spins=None, traces=None):
         self.mod = mod
         self.starts = starts
         self.patched = patched or {}   # {address: [(set index, [replacement words])]} (recomp/patches.py)
         self.spins = spins or {}       # {spin wait back-edge: its head} (recomp/patches.py `spin`)
+        self.traces = traces or set()  # trace point addresses (recomp/patches.py `trace`)
         self.reg_locals = reg_locals   # recomp/regs.py: registers per function in C locals
         self.kept = regs.CALLEE_SAVED if callee_saved else frozenset()   # not reloaded after a call
         self.uses_patches = False
@@ -452,6 +453,9 @@ class Emitter:
             if a in labels:
                 emit(None, f'L_{a:x}:;')
             k = ins.kind
+            if a in self.traces:   # debugging: log the guest registers before this instruction (runtime/tracepoint.c)
+                emit(i, f'    {spill}rt_trace_point(c, {hx(a)});')
+                self.stats['trace_points'] = self.stats.get('trace_points', 0) + 1
             if a in self.patched:
                 emit(i, patch(i, ins, a))
             elif k == 'op':
@@ -587,7 +591,8 @@ def _emitter(name):
         mod.read = recorded
         e = _W['emitters'][name] = Emitter(mod, set(_W['starts'][name].tolist()),
                                            _W['patches'].for_module(name, base),
-                                           spins=_W['patches'].spins_for(name, base), **_W['opts'])
+                                           spins=_W['patches'].spins_for(name, base),
+                                           traces=_W['patches'].traces_for(name, base), **_W['opts'])
     return e
 
 

@@ -29,6 +29,11 @@ A `spin` line names a spin wait found by tools/spin_waits.py: a loop with head <
 and the direct branches back to it (module offsets). Each back-edge (checked: a b, b.cond, cbz / cbnz or tbz / tbnz to
 <head>) is lifted as `rt_spin_gate(c, <head>); goto <head>`, which keeps every register and only adds time
 (runtime/kernel.c kern_spin_gate).
+
+A `trace` line names instructions to observe while debugging: `trace <module> <address> [<address> ...]` (module
+offsets in .text). Each one is lifted with `rt_trace_point(c, <address>)` in front of it, after the registers kept in
+C locals are stored back, so the runtime can log the guest registers there (runtime/tracepoint.c). It changes no
+register, flag or memory; leave trace lines out of a release patch file.
 """
 from pathlib import Path
 
@@ -51,11 +56,16 @@ class Table:
     """sets: [(name, env, default)]; sites: {module: {offset: [(set index, [word | ('page', reg)], original)]}} (the
     alternatives of a site in file order); page."""
 
-    def __init__(self, sets=(), sites=None, page=0, spins=None):
+    def __init__(self, sets=(), sites=None, page=0, spins=None, traces=None):
         self.sets = list(sets)
         self.sites = sites or {}
         self.page = page
         self.spins = spins or {}   # {module: {back-edge offset: head offset}}
+        self.traces = traces or {}   # {module: {offset}}
+
+    def traces_for(self, name, base):
+        """{absolute address} of the trace points in module name."""
+        return {base + t for t in self.traces.get(name, ())}
 
     def spins_for(self, name, base):
         """{absolute back-edge address: absolute head address}."""
@@ -73,7 +83,7 @@ class Table:
 
 def load(path, mods):
     """Table from a patch file; mods is layout() output [(name, base, size)]."""
-    sets, index, sites, spins = [], {}, {}, {}
+    sets, index, sites, spins, traces = [], {}, {}, {}, {}
     bases = {n: (b, s) for n, b, s in mods}
     for no, raw in enumerate(Path(path).read_text().splitlines(), 1):
         f = raw.split('#', 1)[0].split()
@@ -112,6 +122,10 @@ def load(path, mods):
                 if b in mod:
                     raise PatchError(f'{where}: {f[1]}+{b:#x} is a back-edge twice')
                 mod[b] = head
+        elif f[0] == 'trace' and len(f) >= 3:
+            if f[1] not in bases:
+                raise PatchError(f'{where}: module {f[1]} not in the layout')
+            traces.setdefault(f[1], set()).update(int(t, 16) for t in f[2:])
         else:
             raise PatchError(f'{where}: cannot parse {raw!r}')
     base, size = bases['main'][0], bases['main'][1]
@@ -119,7 +133,7 @@ def load(path, mods):
     nxt = min((b for _, b, _ in mods if b > base), default=None)
     if nxt is not None and page + PAGE > nxt:
         raise PatchError(f'no room for the patch page after main ({page:#x})')
-    return Table(sets, sites, page, spins)
+    return Table(sets, sites, page, spins, traces)
 
 
 def check(table, mod, name):
@@ -131,6 +145,9 @@ def check(table, mod, name):
         have = mod.word(a)
         if have != want:
             raise PatchError(f'{name}+{off:#x}: module has {have:08x}, the patch expects {want:08x}')
+    for t in table.traces.get(name, ()):
+        if not mod.in_text(mod.base + t) or t % 4:
+            raise PatchError(f'{name}+{t:#x}: trace point outside .text or unaligned')
     for b, head in table.spins.get(name, {}).items():
         a = mod.base + b
         if not mod.in_text(a) or branch_target(mod.word(a), a) != mod.base + head:
