@@ -404,6 +404,16 @@ static void ov_aoc_list(Cpu *c) {
     if (offset < 0 || count < 0) rt_fatal("aoc: ListAddOnContent range %d+%d", offset, count);
     ret_x(c, 0);
 }
+// int CountAddOnContent(): Scarlet/Violet ask how many there are before listing them. None on this host.
+static void ov_aoc_count(Cpu *c) { ret_x(c, 0); }
+// Result GetAddOnContentListChangedEvent(os::SystemEvent *event): the list never changes while the game runs, so the
+// event is bound and never signalled. os::SystemEvent holds its SystemEventType at offset 0.
+static void ov_aoc_list_changed_event(Cpu *c) {
+    uint64_t ev = arg_x(c, 0);
+    if (!ev) rt_fatal("nn::aoc::GetAddOnContentListChangedEvent: null event");
+    kern_bind_system_event(c, ev, 0);
+    ret_x(c, 0);
+}
 static void ov_err_context(Cpu *c) { (void)c; rt_log("err: error contexts stay local"); }
 static void ov_pctl_initialize(Cpu *c) { (void)c; rt_log("pctl: no parental controls"); }
 static void ov_abort_observer(Cpu *c) { (void)c; rt_log("diag: the host crash reporter observes aborts"); }
@@ -907,6 +917,8 @@ HOST_OVERRIDE("_ZN2nn3err9ShowErrorENS_6ResultE", ov_show_error);
 HOST_OVERRIDE("nndiagStartup", ov_diag_startup);
 HOST_OVERRIDE("_ZN2nn3aoc10InitializeEv", ov_aoc_initialize);
 HOST_OVERRIDE("_ZN2nn3aoc16ListAddOnContentEPiii", ov_aoc_list);
+HOST_OVERRIDE("_ZN2nn3aoc17CountAddOnContentEv", ov_aoc_count);
+HOST_OVERRIDE("_ZN2nn3aoc31GetAddOnContentListChangedEventEPNS_2os11SystemEventE", ov_aoc_list_changed_event);
 HOST_OVERRIDE("_ZN2nn3err26InitializeContextWriterApiEv", ov_err_context);
 HOST_OVERRIDE("_ZN2nn4pctl10InitializeEv", ov_pctl_initialize);
 HOST_OVERRIDE("_ZN2nn4diag34InitializeApplicationAbortObserverEv", ov_abort_observer);
