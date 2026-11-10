@@ -42,6 +42,7 @@
 #include "cfg.h"
 #include "gfx.h"
 #include "host.h"
+#include "nvn_xfb.h"
 #include "platform/platform.h"
 
 #define CONTROL_SIZE 0x880
@@ -1176,6 +1177,20 @@ static size_t build_request(char *o0, const char *hex, const char *stage, const 
     if (host_sg[si] != 32) o += sprintf(o, ",\"subgroup\":%u", host_sg[si]);
     if (host_gather) o += sprintf(o, ",\"gather_bias\":%u", host_gather);
     if (host_zero_locals) o += sprintf(o, ",\"zero_locals\":true");
+    // Transform feedback (nvn_xfb.h): per captured buffer its stride and the attribute word of each record word
+    NvnXfbLayout xl;
+    const char *xbad;
+    if (!strcmp(stage, "vs") && nvn_xfb_layout(control, &xl, &xbad)) {
+        o += sprintf(o, ",\"xfb\":[");
+        for (int b = 0; b < 4; b++) {
+            o += sprintf(o, "%s{\"stride\":%u,\"locs\":\"", b ? "," : "", xl.mask >> b & 1 ? xl.stride[b] : 0);
+            for (uint32_t w = 0; xl.mask >> b & 1 && w < xl.stride[b] / 4; w++) o += sprintf(o, "%02x", xl.loc[b][w]);
+            o += sprintf(o, "\"}");
+        }
+        o += sprintf(o, "]");
+    } else if (!strcmp(stage, "vs") && xbad) {
+        rt_log("gfx_shader: transform feedback layout not understood (%s): the vertex shader captures nothing", xbad);
+    }
     o += sprintf(o, "},\"out\":\"");
     json_esc(&o, cache_dir);
     o += sprintf(o, "\"}");
@@ -1370,7 +1385,7 @@ static const GfxShader *translate_one(const Req *r, int stage, const uint8_t *co
     snprintf(spv_path, PATH_CAP + 80, "%s/%s.spv", cache_dir, hex);
     snprintf(res_path, PATH_CAP + 80, "%s/%s.res.json", cache_dir, hex);
     if (!write_file(code_path, code + skip, (size_t)(r->length - skip))) return fail("cannot write the code file", hex);
-    size_t cap = 2 * PATH_CAP * 6 + 2 * r->c1_len + 8192;
+    size_t cap = 2 * PATH_CAP * 6 + 2 * r->c1_len + 8192 + 2048;   // + the transform feedback layout
     char *req = malloc(cap), reply[LINE_MAX_LEN];
     if (!req) return plat_file_delete(code_path), fail("out of memory", hex);
     build_request(req, hex, r->stage_name, code_path, r->c1, r->c1_len, a, control);

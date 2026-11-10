@@ -41,7 +41,7 @@
 #define NVN_STAGE_CS 5
 #define ONESHOT_WAIT_MS 30000u   // prepare_draw: how long a one-shot draw waits for its pipeline before it is skipped
 
-enum { W_PROGRAM, W_SHADER, W_PIPELINE, W_NO_VS, W_INDEX, W_UB, W_BIND, W_SSBO_ALIGN, W_SSBO_SLOT, W_RESTART, W_INDIRECT, W_COUNT };
+enum { W_PROGRAM, W_SHADER, W_PIPELINE, W_NO_VS, W_INDEX, W_UB, W_BIND, W_SSBO_ALIGN, W_SSBO_SLOT, W_RESTART, W_INDIRECT, W_XFB, W_COUNT };
 
 static void warn_once(int key, const char *fmt, ...) {
     static volatile int32_t seen[W_COUNT];
@@ -1920,6 +1920,10 @@ static void bind_resources(VkExec *ex, const VkPipeInfo *info) {
         }
         nd += cnt;
     }
+    // An empty set 1 (no fragment stage: the transform feedback programs) has no binding to start it at: set 0's
+    // descriptors then run to the end. Without this d0[1] stayed 0, set 0 was pushed with 0 bytes and the recorder
+    // thread handed the driver a template update without its data (an access violation in the driver).
+    if (n_sets == 2 && lo[1] == hi[1]) d0[1] = nd;
     // Under the validation layer, a new graphics layout binds set 1 before set 0 is pushed or bound. The layer (SDK
     // 1.4.363, PipelineLayoutCompatDef::operator==) takes any two INDEPENDENT_SETS layouts as compatible, so
     // vkCmdPushDescriptorSetKHR keeps the push set it made for an earlier layout and drops writes to bindings that
@@ -2192,6 +2196,145 @@ static int pipe_memo_on(void) {
 }
 
 // Pass, shaders, pipeline, fixed state and resources for a draw. 0: the draw is skipped.
+// NVN binds a program per stage: BindProgram(NULL, stages) unbinds only those stages, the others keep their shaders.
+// Scarlet binds its transform feedback programs for the vertex stage and then unbinds the fragment stage. The replay
+// keeps one program per draw, so such an unbind leaves a program holding the remaining stages of the bound one: a
+// host copy without the unbound stages, with a serial of its own (the back end caches per serial), kept for the run
+// (one per program and stage set, as few as the game has such programs).
+#define PROG_WITHOUT_N 1024
+static struct { uint64_t base; uint32_t drop; prog_t *p; } prog_wo[PROG_WITHOUT_N];
+static const prog_t *prog_without(const prog_t *base, uint32_t drop) {
+    uint32_t have = 0;
+    for (uint32_t i = 0; i < base->nstage && i < 6; i++) {
+        const uint8_t *c = base->sd[i].control;
+        uint32_t st;
+        if (!c) continue;
+        memcpy(&st, c + 0x714, 4);
+        if (st < 6) have |= 1u << st;
+    }
+    if (!(have & ~drop)) return NULL;           // nothing left bound
+    if (!(have & drop)) return base;            // the stages unbound were not this program's
+    unsigned h = (unsigned)((base->serial * 0x9E3779B97F4A7C15ull ^ drop) >> 54) % PROG_WITHOUT_N;
+    for (int k = 0; k < PROG_WITHOUT_N; k++) {
+        typeof(prog_wo[0]) *e = &prog_wo[(h + (unsigned)k) % PROG_WITHOUT_N];
+        if (e->p && e->base == base->serial && e->drop == drop) return e->p;
+        if (e->p) continue;
+        prog_t *p = calloc(1, sizeof *p);
+        if (!p) rt_fatal("vk: out of memory");
+        p->magic = base->magic;
+        for (uint32_t i = 0; i < base->nstage && i < 6; i++) {
+            const uint8_t *c = base->sd[i].control;
+            uint32_t st;
+            if (!c) continue;
+            memcpy(&st, c + 0x714, 4);
+            if (st < 6 && !(drop >> st & 1)) p->sd[p->nstage++] = base->sd[i];
+        }
+        p->serial = nvn_new_serial();
+        e->base = base->serial, e->drop = drop, e->p = p;
+        return p;
+    }
+    warn_once(W_PROGRAM, "too many partially unbound programs: the draw keeps every stage");
+    return base;
+}
+
+// ---- transform feedback (VK_EXT_transform_feedback)
+// NVN's Begin/Pause/Resume/End bracket draws whose vertex shader captures its outputs (nvn_xfb.h); Scarlet computes its
+// characters' bone matrices this way. Vulkan's transform feedback lives inside a render pass and only around draws
+// whose pipeline captures, so the replay begins it at the first capturing draw of a pass and ends it at the pass end
+// or before a draw that does not capture, saving the write offsets in a counter buffer of its own; every later begin
+// continues from them until the next NVN Begin starts over at offset 0.
+static struct {
+    int state;   // 0 not tried, 1 ready, -1 unavailable
+    PFN_vkCmdBindTransformFeedbackBuffersEXT bind;
+    PFN_vkCmdBeginTransformFeedbackEXT begin;
+    PFN_vkCmdEndTransformFeedbackEXT end;
+    VkBuffer counters;   // 4 u32 write offsets
+    VmaAllocation calloc;
+} XF;
+
+static int xfb_ready(void) {
+    if (XF.state) return XF.state > 0;
+    VkCtx *c = vk_ctx();
+    XF.state = -1;
+    if (!c->has_transform_feedback) return warn_once(W_XFB, "transform feedback is not supported by this GPU: captures are skipped"), 0;
+    XF.bind = (PFN_vkCmdBindTransformFeedbackBuffersEXT)vkGetDeviceProcAddr(c->device, "vkCmdBindTransformFeedbackBuffersEXT");
+    XF.begin = (PFN_vkCmdBeginTransformFeedbackEXT)vkGetDeviceProcAddr(c->device, "vkCmdBeginTransformFeedbackEXT");
+    XF.end = (PFN_vkCmdEndTransformFeedbackEXT)vkGetDeviceProcAddr(c->device, "vkCmdEndTransformFeedbackEXT");
+    VkBufferCreateInfo bi = {.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, .size = 16,
+                             .usage = VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_COUNTER_BUFFER_BIT_EXT};
+    VmaAllocationCreateInfo ai = {.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE};
+    if (!XF.bind || !XF.begin || !XF.end || vmaCreateBuffer(c->vma, &bi, &ai, &XF.counters, &XF.calloc, NULL) != VK_SUCCESS)
+        return warn_once(W_XFB, "transform feedback entry points or counter buffer unavailable: captures are skipped"), 0;
+    XF.state = 1;
+    rt_log("vk: transform feedback ready");
+    return 1;
+}
+
+static void xfb_stop(VkExec *ex) {
+    if (!ex->xfb_running) return;
+    VkBuffer cb[4] = {XF.counters, XF.counters, XF.counters, XF.counters};
+    VkDeviceSize co[4] = {0, 4, 8, 12};
+    rec_xfb_end(XF.end, ex->cb, 0, 4, cb, co);
+    ex->recorded++;
+    ex->xfb_running = 0;
+    ex->xfb_resume = 1;
+}
+
+void vk_exec_xfb_pass_end(VkExec *ex) { xfb_stop(ex); }
+
+// The buffers the bound program's vertex shader captures into (bit b), 0 when it captures nothing
+static uint32_t xfb_mask(const VkExec *ex) {
+    const uint8_t *ctl, *code;
+    uint32_t len;
+    if (!ex->prog || !find_stage(ex->prog, 0, &ctl, &code, &len) || !ctl[0x6ed]) return 0;
+    uint32_t m = 0;
+    for (int b = 0; b < 4; b++) m |= (uint32_t)(ctl[0x6e8 + b] != 0) << b;
+    return m;
+}
+
+// Before a draw, inside the pass: transform feedback runs around it when NVN's is on and its program captures
+static void xfb_draw(VkExec *ex) {
+    uint32_t m = ex->xfb_on ? xfb_mask(ex) : 0;
+    if (!m) { xfb_stop(ex); return; }
+    if (ex->xfb_running || !xfb_ready()) return;
+    for (int b = 0; b < 4; b++) {
+        if (!(m >> b & 1)) continue;
+        const p_xfb_bind *x = &ex->xfb_buf[b];
+        VkDescriptorBufferInfo bi;
+        if (!x->addr || !bind_range(ex, x->addr, x->size, 4, UINT64_MAX, VK_MUSE_GPU_WRITE, 1, &bi) || bi.buffer == VK_NULL_HANDLE) {
+            warn_once(W_XFB, "transform feedback buffer %d (%#llx) is not backed or not aligned: that capture is skipped", b,
+                      (unsigned long long)x->addr);
+            return;
+        }
+        note_written(ex, x->addr, bi.range);
+        rec_xfb_bind(XF.bind, ex->cb, (uint32_t)b, 1, &bi.buffer, &bi.offset, &bi.range);
+    }
+    VkBuffer cb[4] = {XF.counters, XF.counters, XF.counters, XF.counters};
+    VkDeviceSize co[4] = {0, 4, 8, 12};
+    if (ex->xfb_resume) rec_xfb_begin(XF.begin, ex->cb, 0, 4, cb, co);
+    else rec_xfb_begin(XF.begin, ex->cb, 0, 0, NULL, NULL);
+    ex->recorded += 2;
+    ex->xfb_running = 1;
+    vk_exec_frame.xfb_passes++;
+}
+
+// OP_XFB_BIND / OP_XFB_STATE
+static void op_xfb(VkExec *ex, uint32_t op, const void *payload) {
+    if (op == OP_XFB_BIND) {
+        const p_xfb_bind *b = payload;
+        if (b->index < 0 || b->index >= 4) return;
+        if (ex->xfb_running) xfb_stop(ex);   // NVN binds only while paused or ended; a Vulkan rebind must not be inside
+        ex->xfb_buf[b->index] = *b;
+        return;
+    }
+    switch (((const p_xfb_state *)payload)->what) {
+    case XFB_BEGIN: xfb_stop(ex); ex->xfb_on = 1, ex->xfb_resume = 0; break;
+    case XFB_RESUME: ex->xfb_on = 1; break;
+    case XFB_PAUSE: xfb_stop(ex); ex->xfb_on = 0; break;
+    case XFB_END: xfb_stop(ex); ex->xfb_on = 0, ex->xfb_resume = 0; break;
+    }
+}
+
 static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
     if (ex->render_disabled) return 0;
     cb_res(ex);
@@ -2205,7 +2348,8 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
     if (!ex->in_pass) ex->dirty |= VK_EXEC_DIRTY_VIEWPORT | VK_EXEC_DIRTY_SCISSOR;
     vk_exec_pass_begin(ex);
     VkRect2D sc = vk_exec_scissor(ex);
-    if (!sc.extent.width || !sc.extent.height) return 0;
+    // an empty scissor draws nothing, but a transform feedback pass (rasterizer discard, often no target) still captures
+    if ((!sc.extent.width || !sc.extent.height) && !(ex->xfb_on && xfb_mask(ex))) return 0;
     if (!ex->prog) return warn_once(W_PROGRAM, "a draw without a bound program is skipped"), 0;
     int has_vs, has_fs, vs_wait = 0, fs_wait = 0, memo = shader_memo_on();
     const GfxShader *vs, *fs;
@@ -3103,6 +3247,7 @@ static void bind_index(VkExec *ex, const void *data, uint64_t bytes, VkIndexType
 static void op_draw(VkExec *ex, const p_draw *d) {
     c0_binst = (uint32_t)d->base_instance;
     if (d->count <= 0 || !prepare_draw(ex, d->prim, d->count, 0)) return;
+    xfb_draw(ex);
     vk_exec_frame.draws++;
     uint32_t inst = d->instances > 0 ? (uint32_t)d->instances : 1, first = (uint32_t)d->first, n = (uint32_t)d->count;
     if (d->prim == NVN_DRAW_PRIMITIVE_QUADS && n >= 4) {   // quads become two triangles each
@@ -3155,6 +3300,7 @@ static void op_draw_idx(VkExec *ex, const p_draw_idx *d) {
     if (d->itype < 0 || d->itype > 2) return warn_once(W_INDEX, "index type %d is unknown: draw skipped", d->itype);
     int restart = restart_for(ex, d->prim, d->itype);
     if (d->count <= 0 || !prepare_draw(ex, d->prim, d->count, restart)) return;
+    xfb_draw(ex);
     vk_exec_frame.draws++;
     uint64_t bytes = (uint64_t)d->count * isize[d->itype];
     VkMemSpan sp;
@@ -3199,6 +3345,7 @@ static void op_draw_idx_ind(VkExec *ex, const p_draw_idx_ind *d) {
     if (!vk_mem_resolve(d->ibuf, 1, &ib) || ib.offset % (d->itype == NVN_INDEX_TYPE_UNSIGNED_SHORT ? 2 : 4))
         return warn_once(W_INDEX, "index buffer %#llx is not backed or not aligned: indirect draws skipped", (unsigned long long)d->ibuf);
     if (!prepare_draw(ex, d->prim, 0x7fffffff, restart_for(ex, d->prim, d->itype))) return;
+    xfb_draw(ex);
     vk_exec_frame.draws++;
     VK_MEM_USE(ip);
     VK_MEM_USE(ib);
@@ -3542,7 +3689,8 @@ void vk_exec_op_draw(VkExec *ex, uint32_t op, const void *payload) {
     switch (op) {
     case OP_BIND_PROGRAM: {
         const p_bind_program *b = payload;
-        ex->prog = b->prog, ex->prog_stages = b->stages;
+        if (b->prog || !ex->prog) ex->prog = b->prog, ex->prog_stages = b->stages;
+        else ex->prog = prog_without(ex->prog, (uint32_t)b->stages);   // an unbind of some stages keeps the others
         bind_gen++;
         break;
     }
@@ -3614,6 +3762,7 @@ void vk_exec_op_draw(VkExec *ex, uint32_t op, const void *payload) {
         bind_gen++;
         break;
     }
+    case OP_XFB_BIND: case OP_XFB_STATE: op_xfb(ex, op, payload); break;
     case OP_UPDATE_UB: op_update_ub(ex, payload); break;
     case OP_DRAW: op_draw(ex, payload); break;
     case OP_DRAW_IDX: op_draw_idx(ex, payload); break;

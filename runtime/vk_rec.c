@@ -59,7 +59,7 @@ enum {
     R_SetRasterizerDiscardEnable, R_SetScissorWithCount, R_SetStencilCompareMask, R_SetStencilOp, R_SetStencilReference,
     R_SetStencilTestEnable, R_SetStencilWriteMask, R_SetViewportWithCount, R_WriteTimestamp, R_WriteTimestamp2,
     R_PushTpl, R_Push, R_VertexInput, R_Bool, R_PolygonMode, R_BlendEnable, R_BlendEquation, R_WriteMask, R_EndCb,
-    R_PassMark, R_BeginCb, R_Submit,
+    R_PassMark, R_XfbBind, R_XfbBegin, R_XfbEnd, R_BeginCb, R_Submit,
 };
 
 static uint64_t now_ns(void) { return plat_now_ns(); }
@@ -726,6 +726,34 @@ void rec_pass_mark(VkCommandBuffer cb, uint32_t id, int end) {
     pub();
 }
 
+// Transform feedback (VK_EXT_transform_feedback): up to 4 buffers or counter buffers per call
+typedef struct { void *fn; uint32_t first, n; VkBuffer b[4]; VkDeviceSize o[4], sz[4]; int has_sz, has_b; } A_Xfb;
+void rec_xfb_bind(PFN_vkCmdBindTransformFeedbackBuffersEXT fn, VkCommandBuffer cb, uint32_t first, uint32_t n,
+                  const VkBuffer *b, const VkDeviceSize *o, const VkDeviceSize *sz) {
+    if (!OWNED(cb) || n > 4) { fn(cb, first, n, b, o, sz); return; }
+    A_Xfb *a = put(R_XfbBind, sizeof *a);
+    *a = (A_Xfb){(void *)fn, first, n, {0}, {0}, {0}, sz != NULL, 1};
+    for (uint32_t i = 0; i < n; i++) a->b[i] = b[i], a->o[i] = o[i], a->sz[i] = sz ? sz[i] : 0;
+    pub();
+}
+static void xfb_counters(int op, void *fn, VkCommandBuffer cb, uint32_t first, uint32_t n, const VkBuffer *b,
+                         const VkDeviceSize *o) {
+    A_Xfb *a = put(op, sizeof *a);
+    *a = (A_Xfb){fn, first, n, {0}, {0}, {0}, 0, b != NULL};
+    for (uint32_t i = 0; i < n && i < 4; i++) a->b[i] = b ? b[i] : VK_NULL_HANDLE, a->o[i] = o ? o[i] : 0;
+    pub();
+}
+void rec_xfb_begin(PFN_vkCmdBeginTransformFeedbackEXT fn, VkCommandBuffer cb, uint32_t first, uint32_t n,
+                   const VkBuffer *b, const VkDeviceSize *o) {
+    if (!OWNED(cb) || n > 4) { fn(cb, first, n, b, o); return; }
+    xfb_counters(R_XfbBegin, (void *)fn, cb, first, n, b, o);
+}
+void rec_xfb_end(PFN_vkCmdEndTransformFeedbackEXT fn, VkCommandBuffer cb, uint32_t first, uint32_t n,
+                 const VkBuffer *b, const VkDeviceSize *o) {
+    if (!OWNED(cb) || n > 4) { fn(cb, first, n, b, o); return; }
+    xfb_counters(R_XfbEnd, (void *)fn, cb, first, n, b, o);
+}
+
 typedef struct { void *fn; uint32_t first, n; const void *v; } A_Targets;
 #define TARGET_CMD(fname, R, PFN, T)                                                                                    \
     void fname(PFN fn, VkCommandBuffer cb, uint32_t first, uint32_t n, const T *v) {                                    \
@@ -822,6 +850,17 @@ static void exec_packet(uint32_t op, void *p) {
     case R_BlendEquation: { A_Targets *a = p; ((PFN_vkCmdSetColorBlendEquationEXT)a->fn)(cb, a->first, a->n, a->v); break; }
     case R_WriteMask: { A_Targets *a = p; ((PFN_vkCmdSetColorWriteMaskEXT)a->fn)(cb, a->first, a->n, a->v); break; }
     case R_PassMark: { A_PassMark *a = p; vk_pass_mark_cmd(cb, a->id, a->end); break; }
+    case R_XfbBind: {
+        A_Xfb *a = p;
+        ((PFN_vkCmdBindTransformFeedbackBuffersEXT)a->fn)(cb, a->first, a->n, a->b, a->o, a->has_sz ? a->sz : NULL);
+        break;
+    }
+    case R_XfbBegin: case R_XfbEnd: {
+        A_Xfb *a = p;
+        PFN_vkCmdBeginTransformFeedbackEXT f = (PFN_vkCmdBeginTransformFeedbackEXT)a->fn;   // same signature as End
+        f(cb, a->first, a->n, a->has_b ? a->b : NULL, a->has_b ? a->o : NULL);
+        break;
+    }
     case R_EndCb: {
         A_EndCb *a = p;
         if (a->kind) vk_crumb(cb, a->kind, a->n);

@@ -89,6 +89,11 @@ typedef struct VkExec {
     NVNbufferRange vbuf[16];             // OP_BIND_VBUF
     p_bind_buf ubo[6][18], ssbo[6][16];  // OP_BIND_UBO / OP_BIND_SSBO per stage and index
     uint64_t tex[6][128], samp[6][128], img[6][32];   // OP_BIND_TEX / OP_BIND_SAMP / OP_BIND_IMG handles per stage
+    // Transform feedback (OP_XFB_BIND, OP_XFB_STATE): the bound buffers; xfb_on: between Begin/Resume and End/Pause;
+    // xfb_resume: the next Vulkan begin continues from the saved offsets (after the first, or a pause); xfb_running:
+    // begun in the open pass (ended at pass end and before a draw that captures nothing)
+    p_xfb_bind xfb_buf[4];
+    int xfb_on, xfb_resume, xfb_running;
 
     // ---- vk_exec_xfer.c slots (render enable, conditional rendering): left empty by vk_exec.c
     int render_disabled;                 // OP_RENDER_ENABLE false or a failed OP_RENDER_COND: clears and draws skip
@@ -119,6 +124,8 @@ typedef struct VkExec {
 void vk_exec_pass_begin(VkExec *ex);
 // Ends the open pass (no-op without one) and marks its targets GPU-written. Call before copies and dispatches.
 void vk_exec_pass_end(VkExec *ex);
+// vk_exec_draw.c: ends transform feedback begun in the open pass, keeping its offsets (before vkCmdEndRendering)
+void vk_exec_xfb_pass_end(VkExec *ex);
 // Full memory barrier (all commands, all memory); ends the open pass first. Copies and dispatches order themselves with
 // it. Skipped when nothing was recorded since the last one.
 void vk_exec_barrier(VkExec *ex);
@@ -157,7 +164,7 @@ void vk_exec_targets_describe(VkExec *ex, char *buf, size_t cap);
 
 // TOTK_TRACE=gfx: replay counters of the current frame, logged and reset at each present (vk_exec_frame_log).
 typedef struct {
-    uint64_t passes, draws_seen, draws, clears, copies, dispatches, submits;
+    uint64_t passes, draws_seen, draws, clears, copies, dispatches, submits, xfb_passes;
     uint64_t fb_draws, fb_barriers, fb_restarts, fb_layouts;   // feedback loops: draws sampling a written target of
                                                                // their pass, in-pass barriers, pass restarts, layout
                                                                // transitions

@@ -4,6 +4,7 @@
 // are not here on purpose: they keep the weak stub in nvn_procs.c, which stops with the proc's name, so the first
 // game path that needs one is found instead of drawing wrong.
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "gfx.h"
@@ -133,19 +134,11 @@ NVN_API(nvnBlendStateGetAdvancedNormalizedDst) { ret_x(c, 0); }
 NVN_API(nvnTextureBuilderSetGLTextureName) { (void)c; }
 NVN_API(nvnTextureBuilderGetGLTextureName) { ret_x(c, 0); }
 
-// ---------- Transform feedback. Not captured yet: NVN takes the varying layout from the compiled program's control
-// section, which the front end does not parse, and the translator is not asked for XFB outputs. Scarlet records
-// transform feedback passes at boot; until capture is implemented, binds and begin/pause/resume/end change nothing and
-// DrawTransformFeedback draws nothing, logged once so the gap stays visible (docs/phase3-boot.md).
-static void xfb_gap(const char *what) {
+// ---------- Transform feedback: recorded by nvn_api_cmd.c (OP_XFB_BIND, OP_XFB_STATE) and replayed by vk_exec_draw.c.
+// DrawTransformFeedback (a draw whose vertex count is what an earlier pass captured) is not replayed yet: logged once.
+NVN_API(nvnCommandBufferDrawTransformFeedback) {
+    (void)c;
     static int logged;
     if (!__atomic_exchange_n(&logged, 1, __ATOMIC_RELAXED))
-        rt_log("nvn: transform feedback is not captured yet (%s); its passes write nothing", what);
+        rt_log("nvn: DrawTransformFeedback is not replayed yet: those draws are skipped");
 }
-NVN_API(nvnCommandBufferBindTransformFeedbackBuffer) { (void)c; }
-NVN_API(nvnCommandBufferBindTransformFeedbackBuffers) { (void)c; }
-NVN_API(nvnCommandBufferBeginTransformFeedback) { (void)c; xfb_gap("BeginTransformFeedback"); }
-NVN_API(nvnCommandBufferPauseTransformFeedback) { (void)c; }
-NVN_API(nvnCommandBufferResumeTransformFeedback) { (void)c; }
-NVN_API(nvnCommandBufferEndTransformFeedback) { (void)c; }
-NVN_API(nvnCommandBufferDrawTransformFeedback) { (void)c; xfb_gap("DrawTransformFeedback"); }

@@ -123,6 +123,14 @@ static class SwshXlate
         public bool QueryMotionPrevious() => _job["mvprev"] is JsonValue v && v.TryGetValue<bool>(out bool b) && b;
         // "zero_locals": true: function-local variables start at 0 (patch 0016, runtime/vk_caps.c decides per driver).
         public bool QueryZeroLocals() => _job["zero_locals"] is JsonValue v && v.TryGetValue<bool>(out bool b) && b;
+        // "xfb": transform feedback of a vertex shader (runtime/nvn_xfb.h): four {stride, locs} entries, locs the hex
+        // bytes of the attribute word each 4-byte word of the record holds (Maxwell's varying locations; ff: none).
+        public bool QueryTransformFeedbackEnabled() => _job["xfb"] is JsonArray;
+        public ReadOnlySpan<byte> QueryTransformFeedbackVaryingLocations(int bufferIndex) =>
+            _job["xfb"] is JsonArray a && bufferIndex < a.Count && a[bufferIndex]?["locs"] is JsonNode n
+                ? Convert.FromHexString((string)n) : ReadOnlySpan<byte>.Empty;
+        public int QueryTransformFeedbackStride(int bufferIndex) =>
+            _job["xfb"] is JsonArray a && bufferIndex < a.Count && a[bufferIndex]?["stride"] is JsonNode n ? (int)n : 0;
         public int MotionPreviousLocation = -1, MotionPreviousBanks;
         public void ReportMotionPrevious(int location, int banks) => (MotionPreviousLocation, MotionPreviousBanks) = (location, banks);
     }

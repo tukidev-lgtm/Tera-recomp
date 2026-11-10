@@ -50,6 +50,13 @@ void rec_blend_equation(PFN_vkCmdSetColorBlendEquationEXT fn, VkCommandBuffer cb
                         const VkColorBlendEquationEXT *v);
 void rec_write_mask(PFN_vkCmdSetColorWriteMaskEXT fn, VkCommandBuffer cb, uint32_t first, uint32_t n,
                     const VkColorComponentFlags *v);
+// Transform feedback (vk_exec_xfb.c): at most 4 buffers; counter buffers NULL for none
+void rec_xfb_bind(PFN_vkCmdBindTransformFeedbackBuffersEXT fn, VkCommandBuffer cb, uint32_t first, uint32_t n,
+                  const VkBuffer *b, const VkDeviceSize *o, const VkDeviceSize *sz);
+void rec_xfb_begin(PFN_vkCmdBeginTransformFeedbackEXT fn, VkCommandBuffer cb, uint32_t first, uint32_t n,
+                   const VkBuffer *b, const VkDeviceSize *o);
+void rec_xfb_end(PFN_vkCmdEndTransformFeedbackEXT fn, VkCommandBuffer cb, uint32_t first, uint32_t n,
+                 const VkBuffer *b, const VkDeviceSize *o);
 // A pass mark (vk_crumbs.c vk_pass_mark_cmd: a buffer marker and a checkpoint), in order with the commands around it.
 void rec_pass_mark(VkCommandBuffer cb, uint32_t id, int end);
 

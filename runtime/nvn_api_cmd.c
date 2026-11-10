@@ -936,6 +936,25 @@ NVN_API(nvnCommandBufferSetDepthClamp) { REC(cmd_of(c), OP_DEPTH_CLAMP, p_flag)-
 NVN_API(nvnCommandBufferSetRenderEnable) { REC(cmd_of(c), OP_RENDER_ENABLE, p_flag)->value = nvn_arg_bool(c, 1) != 0; }
 // Rasterizer discard runs vertex work without rasterising; with no transform feedback that equals not drawing.
 NVN_API(nvnCommandBufferSetRasterizerDiscard) { REC(cmd_of(c), OP_RASTER_DISCARD, p_flag)->value = nvn_arg_bool(c, 1) != 0; }
+// Transform feedback. void nvnCommandBufferBindTransformFeedbackBuffer(NVNcommandBuffer *, int index,
+// NVNbufferAddress, size_t size) / ...Buffers(NVNcommandBuffer *, int first, int count, const NVNbufferRange *).
+// Begin/End/Pause/Resume take the address of a control buffer (the write offsets, kept by the hardware); the replay keeps
+// the offsets in a host counter buffer instead (vk_exec_draw.c), so the address is not used.
+NVN_API(nvnCommandBufferBindTransformFeedbackBuffer) {
+    *REC(cmd_of(c), OP_XFB_BIND, p_xfb_bind) = (p_xfb_bind){(int)arg_x(c, 1), 0, arg_x(c, 2), arg_x(c, 3)};
+}
+NVN_API(nvnCommandBufferBindTransformFeedbackBuffers) {
+    int first = (int)arg_x(c, 1), n = (int)arg_x(c, 2);
+    const NVNbufferRange *r = arg_p(c, 3);
+    if (first < 0 || n < 0 || first + n > 4 || (n && !r)) { rt_log("nvn: transform feedback buffers %d+%d", first, n); return; }
+    cmd_t *o = cmd_of(c);
+    for (int i = 0; i < n; i++) *REC(o, OP_XFB_BIND, p_xfb_bind) = (p_xfb_bind){first + i, 0, r[i].address, r[i].size};
+}
+static void xfb_state(Cpu *c, int what) { REC(cmd_of(c), OP_XFB_STATE, p_xfb_state)->what = what; }
+NVN_API(nvnCommandBufferBeginTransformFeedback) { xfb_state(c, XFB_BEGIN); }
+NVN_API(nvnCommandBufferEndTransformFeedback) { xfb_state(c, XFB_END); }
+NVN_API(nvnCommandBufferPauseTransformFeedback) { xfb_state(c, XFB_PAUSE); }
+NVN_API(nvnCommandBufferResumeTransformFeedback) { xfb_state(c, XFB_RESUME); }
 // void nvnCommandBufferSetPrimitiveRestart(NVNcommandBuffer *cmd, NVNboolean enable, int index): TOTK draws its
 // terrain and cliff strips with 16-bit indices and restart at 0xffff; the replay applies it per indexed draw (op_draw_idx)
 NVN_API(nvnCommandBufferSetPrimitiveRestart) {
@@ -1341,7 +1360,7 @@ const char *nvn_op_name(uint32_t op) {
         "BIND_VSTREAM", "BIND_VBUF", "BIND_UBO", "BIND_SSBO", "BIND_TEX", "BIND_SAMP", "STENCIL", "POLY_OFFSET", "DRAW",
         "DRAW_IDX", "DISPATCH", "BARRIER", "SET_TEX_POOL", "SET_SAMP_POOL", "COPY_B2T", "COPY_STRIDE", "BLEND_COLOR",
         "COPY_T2B", "BIND_IMG", "COPY_T2T", "RESET_COUNTER", "CLEAR_TEX", "DEPTH_CLAMP", "RENDER_ENABLE",
-        "RASTER_DISCARD", "RENDER_COND", "PRIM_RESTART", "DRAW_IDX_IND", "DISPATCH_IND", "CLEAR_BUF",
+        "RASTER_DISCARD", "RENDER_COND", "PRIM_RESTART", "DRAW_IDX_IND", "DISPATCH_IND", "CLEAR_BUF", "XFB_BIND", "XFB_STATE",
     };
     _Static_assert(sizeof names / sizeof *names == OP_COUNT_, "one name per op");
     return op < OP_COUNT_ ? names[op] : "?";

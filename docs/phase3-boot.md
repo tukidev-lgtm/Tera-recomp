@@ -20,11 +20,13 @@ Scarlet 4.0.0 on the TotK runtime, from the first run on. Each step names what s
 | NVN multisample/blend getters | procs TotK never called | `nvn_sv.c` |
 | shaders fail: translator not found | `build/xlate/totk_xlate.exe` was never built | `tools/build_xlate.py` (once per checkout) |
 | SDK abort in `CreateThread` | `MapAliasStack`: the thread stack lives in main's bss, which MapMemory refused | `memory.c` accepts module data as a stack source |
-| `nvnCommandBufferBeginTransformFeedback` | transform feedback passes at boot | **gap**: no-ops that log once; capture is not implemented (needs the program's XFB layout) |
+| `nvnCommandBufferBeginTransformFeedback` | Scarlet computes its characters' bone matrices with transform feedback | implemented: layout parsed from the control section (`nvn_xfb.h`), XFB outputs from the translator, Vulkan transform feedback in the replay (`vk_exec_draw.c`) |
+| characters invisible or exploded | the XFB programs bind the vertex stage, then `BindProgram(NULL, FRAGMENT)`; the replay dropped the whole program | per-stage unbind (`prog_without`) |
+| driver access violation in `PushDescriptorSetWithTemplate` | a program without a fragment stage pushed set 0 with 0 bytes (set 1's start never set) | `d0[1]` set when set 1 is empty |
 
 **Milestone (2026-11-09):** first frames, language selection, name and appearance editor, and the opening cutscene with
-text, running without a crash. Rendering has many visual errors; the character preview is black (possibly the missing
-transform feedback).
+text, running without a crash. Characters render since transform feedback; open issues: dark character preview in the
+creation screen, large black shadow areas on buildings.
 
 ## Solved: the null object at main+0x14fe800
 
