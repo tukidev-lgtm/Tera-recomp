@@ -106,3 +106,29 @@ NVN_API(nvnBufferBuilderGetMemoryPool) { ret_x(c, (uint64_t)(uintptr_t)BB(c)->po
 NVN_API(nvnBufferBuilderGetMemoryOffset) { ret_x(c, (uint64_t)BB(c)->off); }
 NVN_API(nvnBufferBuilderGetSize) { ret_x(c, BB(c)->size); }
 #undef BB
+
+// ---------- Multisample state (ms_st): stored and read back. Coverage modulation, coverage-to-color and the sample
+// locations grid only change output with mixed-sample targets (raster samples above the color samples), which the
+// Vulkan back end does not create, so they have no draw effect there.
+#define MS(c) ((ms_st *)arg_p(c, 0))
+NVN_API(nvnMultisampleStateSetCoverageModulationMode) { MS(c)->cov_mod = (uint8_t)arg_x(c, 1); }
+NVN_API(nvnMultisampleStateGetCoverageModulationMode) { ret_x(c, MS(c)->cov_mod); }
+NVN_API(nvnMultisampleStateSetCoverageToColorEnable) { MS(c)->cov2color_en = nvn_arg_bool(c, 1) != 0; }
+NVN_API(nvnMultisampleStateGetCoverageToColorEnable) { ret_x(c, MS(c)->cov2color_en); }
+NVN_API(nvnMultisampleStateSetCoverageToColorOutput) { MS(c)->cov2color_out = (uint8_t)arg_x(c, 1); }
+NVN_API(nvnMultisampleStateGetCoverageToColorOutput) { ret_x(c, MS(c)->cov2color_out); }
+NVN_API(nvnMultisampleStateSetSampleLocationsGridEnable) { MS(c)->sl_grid = nvn_arg_bool(c, 1) != 0; }
+NVN_API(nvnMultisampleStateGetSampleLocationsGridEnable) { ret_x(c, MS(c)->sl_grid); }
+NVN_API(nvnMultisampleStateGetSampleLocationsEnable) { ret_x(c, MS(c)->sl_en); }
+NVN_API(nvnMultisampleStateGetAlphaToCoverageDither) { ret_x(c, MS(c)->a2c_dither); }
+#undef MS
+
+// ---------- Blend state: only advanced mode "none" exists (nvn_ext.c stops on any other), so its options read 0
+NVN_API(nvnBlendStateGetAdvancedMode) { ret_x(c, 0); }
+NVN_API(nvnBlendStateGetAdvancedOverlap) { ret_x(c, 0); }
+NVN_API(nvnBlendStateGetAdvancedPremultipliedSrc) { ret_x(c, 0); }
+NVN_API(nvnBlendStateGetAdvancedNormalizedDst) { ret_x(c, 0); }
+
+// ---------- OpenGL interop: there is no GL context; a texture builder never names a GL texture
+NVN_API(nvnTextureBuilderSetGLTextureName) { (void)c; }
+NVN_API(nvnTextureBuilderGetGLTextureName) { ret_x(c, 0); }
