@@ -36,7 +36,7 @@ import urllib.request
 from pathlib import Path
 
 from . import ini
-from .layout import EXE, SUPPORTED, version_tag
+from .layout import EXE, GAME_TITLE, ROMFS_ESTIMATE, SUPPORTED, UPDATE_TITLE, version_tag
 from .runner import InstallError, Step
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'tools'))
@@ -188,12 +188,25 @@ def game_file(ctx, name):
 
 def game_version(ctx):
     """The update this install is built from: what the check identified, else the recorded one. An install made before
-    1.4.3 support records no version, and that install is 1.2.1: name it here rather than leaning on SUPPORTED's order."""
-    return ctx.state.get('version', '1.2.1')
+    1.4.3 support records no version; Tera Recomp's installs all record theirs."""
+    return ctx.state.get('version', SUPPORTED[0])
 
 
 def expected_update(ctx):
-    return extract.load_expected()[game_version(ctx)]
+    return extract.load_expected(GAME_TITLE)[game_version(ctx)]
+
+
+def romfs_size(expected):
+    """The merged RomFS size of an update: recorded, or the estimate for a version without recorded hashes."""
+    return expected['romfs']['size'] if expected.get('romfs') else ROMFS_ESTIMATE
+
+
+def merged_report(romfs):
+    """The merge's own index.json report, None when unreadable."""
+    try:
+        return json.loads((romfs / 'index.json').read_text())
+    except (OSError, ValueError):
+        return None
 
 
 # Releases before 0.3.1 recorded the 0x20000 update as 1.1.1 (pull request #220); it is 1.1.0 (#371), with the same
@@ -315,7 +328,6 @@ def shared_fonts_ready(dest):
 
 # ---- 1. check
 
-UPDATE_TITLE_ID = '0100F2C0115B6800'
 
 
 def base_misuse(records):
@@ -327,7 +339,7 @@ def base_misuse(records):
     metadata = [r['title_id'] for r, _ in records if r['content_type'] == 1]
     if len(metadata) > 1:
         return 'check.base_combined'
-    if UPDATE_TITLE_ID in metadata:
+    if UPDATE_TITLE in metadata:
         return 'check.base_is_update'
     return None
 
@@ -367,9 +379,12 @@ class Check(Step):
                 raise InstallError('check.firmware_missing', path=str(firmware))
             if not firmware_has_ncas(firmware):
                 raise InstallError('check.firmware_empty', path=str(firmware))
+        # Scarlet draws every text with the shared fonts: without them the game cannot start. Reported after the game
+        # files are checked, so a first run without any input names those first.
+        fonts_missing = lang in ini.NEED_SHARED_FONTS and firmware is None and not shared_fonts_ready(dest)
         if lang in ini.NEED_SHARED_FONTS:
             if firmware is None:
-                rep.warning('warn.lang_needs_fonts', lang=lang)
+                pass
             elif not shared_fonts_ready(dest):
                 keys = getattr(ctx.options, 'keys', None)
                 if not keys or not Path(keys).is_file():
@@ -396,6 +411,8 @@ class Check(Step):
         if ctx.will_run('extract'):
             rep.progress('check', 'inputs', force=True)
             ncas = self.inputs(ctx)
+        if fonts_missing:
+            raise InstallError('check.firmware_needed')
         self.space(ctx, ncas)
         if ctx.will_run('extract'):
             rep.progress('check', 'versions', force=True)
@@ -468,7 +485,11 @@ class Check(Step):
         for name, is_update in (('base', False), ('update', True)):
             path = game_file(ctx, name)
             with path.open('rb') as f:
-                total += self.open_input(f, path, keys, name, is_update)
+                size, title = self.open_input(f, path, keys, name, is_update)
+            if title != GAME_TITLE:   # the extractor takes Scarlet and Violet (and TotK); this release builds Scarlet
+                raise InstallError('check.update_not_totk' if is_update else 'check.base_not_totk',
+                                   detail=f'title {title}')
+            total += size
         del keys
         return total
 
@@ -570,13 +591,13 @@ class Check(Step):
                 raise InstallError('check.ticket_missing', input=name) from None
             raise InstallError('check.keys_too_old', input=name,
                                generation=max(header[0x206], header[0x220])) from None
-        return record['size']
+        return record['size'], record['title_id']
 
     def space(self, ctx, ncas):
         dest_need = temp_need = 0
         if ctx.will_run('extract'):
             # the update is identified after this estimate: the larger RomFS of the supported ones
-            dest_need += max(extract.load_expected()[v]['romfs']['size'] for v in SUPPORTED) + ncas
+            dest_need += max(romfs_size(extract.load_expected(GAME_TITLE)[v]) for v in SUPPORTED) + ncas
             romfs = ctx.dest / 'romfs' / 'romfs.bin'
             if romfs.is_file():   # a resumed extraction replaces it
                 dest_need -= romfs.stat().st_size
@@ -605,7 +626,7 @@ class Check(Step):
         o, work = ctx.options, ctx.temp / 'check'
         logs = ctx.temp / 'logs'
         logs.mkdir(parents=True, exist_ok=True)
-        versions = extract.load_expected()
+        versions = extract.load_expected(GAME_TITLE)
         for name, is_update in (('base', False), ('update', True)):
             out = work / name
             remove(out)
@@ -617,7 +638,10 @@ class Check(Step):
             except ValueError:
                 raise InstallError('check.exefs_failed', input=name, log=str(logs / f'extract_exefs-{name}.log')) \
                     from None
-        problems = extract.exefs_problems(work / 'base' / 'exefs', versions['1.0.0'])
+        base = next((e for e in versions.values() if not e['version']), None)
+        # Scarlet's base has no recorded hashes: the update's main identifies the build, and the RomFS merge checks
+        # the base against the update (hactool verifies all six IVFC levels of the merged image).
+        problems = extract.exefs_problems(work / 'base' / 'exefs', base) if base else []
         if problems:
             raise InstallError('check.base_wrong_version', modules=', '.join(problems))
         try:
@@ -726,8 +750,11 @@ class Extract(Step):
     def verify(self, ctx, record):
         image = ctx.dest / 'romfs' / 'romfs.bin'
         rep = ctx.reporter
+        expected = expected_update(ctx)['romfs'] or merged_report(ctx.dest / 'romfs')
+        if not expected:
+            return False
         digest = file_sha256(image, lambda d, t: rep.progress('check', 'verify_romfs', d, t, 'bytes'))
-        return digest == expected_update(ctx)['romfs']['sha256']
+        return digest == expected['romfs_sha256' if 'romfs_sha256' in expected else 'sha256']
 
     def run(self, ctx):
         o, dest, rep = ctx.options, ctx.dest, ctx.reporter
@@ -774,7 +801,8 @@ class Extract(Step):
         if not extract.romfs_verified(romfs, expected):
             self.merge(ctx, base, update, keys, romfs, expected)
         report = json.loads((romfs / 'index.json').read_text())
-        if report['romfs_size'] != expected['romfs']['size'] or report['romfs_sha256'] != expected['romfs']['sha256']:
+        if expected['romfs'] and (report['romfs_size'] != expected['romfs']['size']
+                                  or report['romfs_sha256'] != expected['romfs']['sha256']):
             raise InstallError('extract.romfs_mismatch', version=game_version(ctx), size=report['romfs_size'],
                                sha256=report['romfs_sha256'][:16])
         (dest / 'profile').mkdir(exist_ok=True)
@@ -792,7 +820,7 @@ class Extract(Step):
                 watch.set('copy', lambda: size_of(dest.glob('update-merge-*/*.nca')), ncas)
             elif name == 'merge':
                 watch.set('merge', lambda: size_of(dest.glob('update-merge-*/result/romfs.bin')),
-                          expected['romfs']['size'])
+                          romfs_size(expected))
             else:
                 watch.set(name)
 
@@ -816,8 +844,8 @@ EMITTED = re.compile(r'^emitted (\d+)/(\d+) chunks')
 DISCOVERED = re.compile(r'^(\w+): \d+ functions \(.*discovery')
 
 
-CHEAT_PLACES = ('cheats', 'atmosphere/contents/0100F2C0115B6000/cheats', 'contents/0100F2C0115B6000/cheats',
-                '0100F2C0115B6000/cheats')
+CHEAT_PLACES = ('cheats', f'atmosphere/contents/{GAME_TITLE}/cheats', f'contents/{GAME_TITLE}/cheats',
+                f'{GAME_TITLE}/cheats')
 
 
 def cheat_files(ctx):
@@ -832,8 +860,8 @@ def cheat_files(ctx):
                   for f in ((mod / where).glob('*.txt') if (mod / where).is_dir() else ()))
 
 
-EXEFS_PLACES = ('exefs', 'atmosphere/contents/0100F2C0115B6000/exefs', 'contents/0100F2C0115B6000/exefs',
-                '0100F2C0115B6000/exefs')
+EXEFS_PLACES = ('exefs', f'atmosphere/contents/{GAME_TITLE}/exefs', f'contents/{GAME_TITLE}/exefs',
+                f'{GAME_TITLE}/exefs')
 
 
 def exefs_files(ctx):
@@ -1035,6 +1063,13 @@ ASPECT_SIZES = ('2560x1080', '3440x1440', '3840x1600', '5120x2160', '3840x1080',
                 '1920x1280', '2160x1440', '2256x1504', '2880x1920', '3000x2000')
 
 
+# TotK's prepare step also wrote RomFS overlays (UI layouts, button prompts) and translated the shaders of the
+# MacNativeGames shader list ahead of play. Neither exists for Scarlet yet: its prepare step only installs the shader
+# translator, and the game translates each shader the first time it meets it, then compiles the recorded ones at the
+# start of every later run (runtime/gfx_shader.c prewarm).
+TOTK_ASSETS = False
+
+
 class Prepare(Step):
     id = 'prepare'
 
@@ -1044,14 +1079,17 @@ class Prepare(Step):
         tools = [layout.tools / n for n in ('prepare_shaders.py', 'shader_census.py', 'make_romfs_patches.py',
                                             'pack_shader_cache.py', 'ultrawide_layout.py', 'button_icons.py')]
         # not the compile key: a rebuild for the mods' code cheats keeps the prepared shaders
+        if not TOTK_ASSETS:
+            return fingerprint('prepare-sv-1', runtime_key(ctx), layout.xlate, xlate_id)
         return fingerprint('prepare-2', ctx.keys['extract'], runtime_key(ctx), layout.xlate, xlate_id,
                            shader_list_text(layout), *tools)
 
     def current(self, ctx, record):
         dest = ctx.dest
         xlate = dest / ctx.layout.xlate.name
-        return ((dest / 'shader-prepared.bin').is_file() and (dest / 'romfs-patches' / 'manifest.tsv').is_file()
-                and xlate.is_file() and file_sha256(xlate) == record.get('xlate_sha256'))
+        assets = not TOTK_ASSETS or ((dest / 'shader-prepared.bin').is_file()
+                                     and (dest / 'romfs-patches' / 'manifest.tsv').is_file())
+        return assets and xlate.is_file() and file_sha256(xlate) == record.get('xlate_sha256')
 
     def run(self, ctx):
         layout, rep, dest = ctx.layout, ctx.reporter, ctx.dest
@@ -1074,6 +1112,8 @@ class Prepare(Step):
                 raise InstallError('prepare.xlate_in_use', path=str(xlate.with_suffix('.id'))) from None
         else:
             remove(xlate.with_suffix('.id'))
+        if not TOTK_ASSETS:
+            return {'xlate_sha256': file_sha256(xlate)}
 
         rep.progress('prepare', 'romfs_patches', force=True)
         remove(dest / 'romfs-patches')
@@ -1243,7 +1283,138 @@ class Cleanup(Step):
             remove(ctx.temp / name)
         romfs_problem(dest / 'romfs', expected_update(ctx))
         write_rebuild_command(ctx)
+        if os.name == 'nt' and getattr(ctx.options, 'shortcut', True) and 'shortcut' not in ctx.state:
+            rep.progress('cleanup', 'shortcut', force=True)
+            desktop_shortcut(ctx)
         return {}
+
+
+# ---- the desktop shortcut
+
+SHORTCUT_NAME = 'Pokemon Scarlet'
+ICON = 'game.ico'
+# Converts the game's icon (a JPEG in the Control NCA) to a 256x256 PNG and writes the shortcut. System.Drawing and the
+# WScript.Shell COM object ship with Windows; the Desktop is asked from .NET, which follows a OneDrive redirection.
+SHORTCUT_PS = r'''
+$ErrorActionPreference = 'Stop'
+if ($jpg -ne '') {
+    Add-Type -AssemblyName System.Drawing
+    $img = [System.Drawing.Image]::FromFile($jpg)
+    $bmp = New-Object System.Drawing.Bitmap 256, 256
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $g.DrawImage($img, 0, 0, 256, 256)
+    $g.Dispose(); $img.Dispose()
+    $bmp.Save($png, [System.Drawing.Imaging.ImageFormat]::Png)
+    $bmp.Dispose()
+}
+$desktop = [Environment]::GetFolderPath('Desktop')
+$link = Join-Path $desktop ($name + '.lnk')
+$s = (New-Object -ComObject WScript.Shell).CreateShortcut($link)
+$s.TargetPath = $exe
+$s.WorkingDirectory = $dir
+if ($ico -ne '') { $s.IconLocation = $ico + ',0' }
+$s.Description = $name + ' (Tera Recomp)'
+$s.Save()
+Write-Output $link
+'''
+
+
+def ps_quote(text):
+    return "'" + str(text).replace("'", "''") + "'"
+
+
+def game_icon(ctx, out):
+    """The game's own icon, a JPEG from the RomFS of the base game's Control NCA (icon_AmericanEnglish.dat, else
+    the first icon_*.dat), extracted with hactool into out/. None when the inputs are not at hand or hactool fails:
+    the shortcut then shows totk.exe's icon."""
+    o = ctx.options
+    base, keys = getattr(o, 'base', None), getattr(o, 'keys', None)
+    if not base or not keys or not Path(keys).is_file():
+        return None
+    try:
+        base = game_file(ctx, 'base')
+        key_values = load_keys(Path(keys))
+        with base.open('rb') as f:
+            _, entries = container_entries(f, base.stat().st_size)
+            tickets = common_tickets(f, entries)
+            controls = [r for r, _ in nca_inventory(f, entries, key_values) if r['content_type'] == 2]
+        del key_values
+        if not controls:
+            return None
+        remove(out)
+        out.mkdir(parents=True)
+        nca = out / 'control.nca'
+        extract.copy_range(base, extract.record_offset(controls[0]), controls[0]['size'], nca)
+        title_keys, hactool_keys = out / 'title.keys', out / 'hactool.keys'
+        fd = os.open(title_keys, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, 'w') as f:
+            for rights, key in tickets.items():
+                f.write(f'{rights.hex()} = {key.hex()}\n')
+        extract.hactool_prod_keys(Path(keys), hactool_keys)
+        romfs = out / 'romfs'
+        code, _ = extract.run_hactool([str(ctx.layout.hactool), '-x', '-y', '--disablekeywarns', '--suppresskeys', '-k',
+                                       str(hactool_keys), f'--romfsdir={romfs}', str(nca)],
+                                      dict(os.environ, MNG_TITLE_KEYS=str(title_keys)))
+        for f in (nca, title_keys, hactool_keys):
+            f.unlink(missing_ok=True)
+        icons = sorted(romfs.glob('icon_*.dat')) if romfs.is_dir() else []
+        if code or not icons:
+            return None
+        return next((i for i in icons if i.name == 'icon_AmericanEnglish.dat'), icons[0])
+    except (OSError, ValueError):
+        return None
+
+
+def png_to_ico(png, ico):
+    """An .ico holding one 256x256 PNG image (Windows Vista and later read PNG entries)."""
+    data = Path(png).read_bytes()
+    header = (b'\0\0\1\0\1\0' + bytes([0, 0, 0, 0]) + (1).to_bytes(2, 'little') + (32).to_bytes(2, 'little')
+              + len(data).to_bytes(4, 'little') + (22).to_bytes(4, 'little'))
+    tmp = Path(ico).with_suffix('.tmp')
+    tmp.write_bytes(header + data)
+    os.replace(tmp, ico)
+
+
+def desktop_shortcut(ctx):
+    """A shortcut on the Desktop that starts totk.exe in the install folder, with the game's own icon. Made once
+    (ctx.state['shortcut']); a player who deletes it keeps it deleted. A failure warns: the game is installed."""
+    dest, rep = ctx.dest, ctx.reporter
+    work = ctx.temp / 'icon'
+    jpg = game_icon(ctx, work)
+    png, ico = work / 'icon.png', dest / ICON
+    script = ''.join(f'${k} = {ps_quote(v)}\n' for k, v in (
+        ('jpg', jpg or ''), ('png', png), ('exe', dest / ('totk' + EXE)), ('dir', dest), ('name', SHORTCUT_NAME),
+        ('ico', ico if jpg else ''))) + SHORTCUT_PS
+    if jpg:   # the PNG first, then the icon file the shortcut names
+        png_script = ''.join(f'${k} = {ps_quote(v)}\n' for k, v in (('jpg', jpg), ('png', png))) + \
+            SHORTCUT_PS.split('$desktop')[0]
+        r = run_powershell(png_script)
+        if r is None or r.returncode or not png.is_file():
+            rep.log(f'shortcut: the icon could not be converted ({r and r.stderr.strip()[-300:]})')
+            script = script.replace(f'$ico = {ps_quote(ico)}', "$ico = ''")
+        else:
+            png_to_ico(png, ico)
+        script = script.replace(f'$jpg = {ps_quote(jpg)}', "$jpg = ''")
+    r = run_powershell(script)
+    remove(work)
+    if r is None or r.returncode:
+        rep.warning('warn.shortcut_failed', detail=(r.stderr.strip()[-300:] if r else 'powershell not found'))
+        return
+    link = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ''
+    rep.log(f'shortcut: {link}')
+    ctx.state['shortcut'] = link
+
+
+def run_powershell(script):
+    import base64
+    encoded = base64.b64encode(script.encode('utf-16-le')).decode('ascii')
+    try:
+        return subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+                               '-EncodedCommand', encoded], capture_output=True, text=True, errors='replace',
+                              timeout=120)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
 
 
 # Puts the release folder (the argument after -c) on sys.path and runs installer.gui with the rest. `-m installer.gui`
@@ -1278,7 +1449,8 @@ def romfs_problem(romfs, expected):
     an install whose romfs/ went empty and unreadable after the extraction verified it (a folder Windows was still
     deleting, #107) reported success and the game stopped at its first file read."""
     try:
-        ok = extract.romfs_verified(romfs, expected) and (romfs / 'romfs.bin').stat().st_size == expected['romfs']['size']
+        ok = extract.romfs_verified(romfs, expected) and (not expected['romfs'] or
+                                                          (romfs / 'romfs.bin').stat().st_size == expected['romfs']['size'])
         if ok:
             with open(romfs / 'romfs.bin', 'rb') as f:
                 f.read(1)

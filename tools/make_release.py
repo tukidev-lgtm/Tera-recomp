@@ -1,7 +1,7 @@
 """Assemble the release folder of docs/installer.md ("Release layout") from pinned downloads.
 
-    .venv-py314\\Scripts\\python tools\\make_release.py --out build/release/TotK-Setup [--zip build/release/TotK-Setup.zip]
-    .venv-py314\\Scripts\\python tools\\make_release.py --out build/release/TotK-Setup --prove
+    .venv-py314\\Scripts\\python tools\\make_release.py --out build/release/Tera-Setup [--zip build/release/Tera-Setup.zip]
+    .venv-py314\\Scripts\\python tools\\make_release.py --out build/release/Tera-Setup --prove
 
 Needs Python 3.14 (tarfile reads the MSYS2 .zst packages), uv on PATH and network access on the first run. Downloads are
 cached in toolchain/release-dl/ and checked against the sha256 in PINS; a mismatch stops the build. The folder holds:
@@ -18,7 +18,7 @@ cached in toolchain/release-dl/ and checked against the sha256 in PINS; a mismat
     data/pgo-<v>.profdata  build/pgo's execution profile of an update (tools/pgo.py) and its .json record: the
                install compiles that update's code and the runtime libraries with it
     VERSION    the repository's VERSION plus the commit, 0.1.0+973c626; the installer's release string
-    TotK-Setup.exe  installer/launcher/launcher.c built with llvm/ (-mwindows): starts python/pythonw.exe -m installer.gui
+    Tera-Setup.exe  installer/launcher/launcher.c built with llvm/ (-mwindows): starts python/pythonw.exe -m installer.gui
 
 --prove compiles the generated C and links build/release-check/totk.exe with nothing but the folder's python/, llvm/,
 runtime/ and bin/ (PATH holds the Windows system directory and those), then runs the four probes there.
@@ -247,7 +247,10 @@ def tcltk_files():
     (src / name).rename(msi)
     shutil.rmtree(dest, ignore_errors=True)
     # Administrative image: copies the MSI's files to TARGETDIR, installs nothing and shows no window.
-    run(['msiexec', '/a', msi, '/qn', f'TARGETDIR={dest}'])
+    # One command line: msiexec reads TARGETDIR="..." itself, and subprocess's quoting of the whole argument
+    # ("TARGETDIR=C:\a b") is refused with 1639 when the path has a space.
+    print(f'+ msiexec /a "{msi}" /qn TARGETDIR="{dest}"', flush=True)
+    subprocess.run(f'msiexec /a "{msi}" /qn TARGETDIR="{dest}"', check=True)
     if not (dest / 'DLLs' / '_tkinter.pyd').is_file():
         sys.exit(f'{dest}: no _tkinter.pyd after msiexec /a')
     return dest
@@ -362,7 +365,7 @@ def collect_licenses(out):
         (unpack('zstd') / 'ucrt64' / 'share' / 'licenses' / 'zstd' / 'LICENSE', 'zstd-LICENSE.txt'),
         (ROOT / 'runtime' / 'shaders' / 'ffx' / 'LICENSE.txt', 'FidelityFX-FSR-LICENSE.txt'),
         (MAIN_ROOT / 'toolchain' / 'hactool' / 'LICENSE', 'hactool-LICENSE.txt'),
-        (MAIN_ROOT / 'refs' / 'MacNativeGames' / 'LICENSE', 'MacNativeGames-LICENSE.txt'),
+        (ROOT / 'tools' / 'vendor' / 'macnativegames' / 'LICENSE', 'MacNativeGames-LICENSE.txt'),   # the vendored scripts'
     ]
     for src, name in pairs:
         shutil.copy2(src, lic / name)
@@ -376,12 +379,11 @@ def collect_licenses(out):
 # ---- runtime/, recomp/, tools/, data/ ---------------------------------------------------------------------------------
 
 def lifted_version():
-    """The game version whose generated C the runtime library and --prove build against: v121, else v143."""
-    for version in ('v121', 'v143'):
+    """The game version whose generated C the runtime library and --prove build against: Scarlet's v400."""
+    for version in ('v400',):
         if (MAIN_ROOT / 'generated' / version / 'layout.json').is_file():
             return version
-    sys.exit('neither generated/v121 nor generated/v143 exists: extract a game version and lift it first '
-             '(tools/extract.py, recomp/gen.py; docs/building.md)')
+    sys.exit('generated/v400 does not exist: lift Pokemon Scarlet 4.0.0 first (tools/dev_run.ps1; docs/building.md)')
 
 
 def profiles():
@@ -435,8 +437,6 @@ def build_sources(out, pgo):
     for d in TOOLS_DIRS:
         copy_tree(ROOT / 'tools' / d, out / 'tools' / d, lambda r: '__pycache__' in r or r.endswith('.md'))
     (out / 'data').mkdir(exist_ok=True)
-    text = shader_list.history(MAIN_ROOT / 'refs' / 'MacNativeGames', MNG_COMMIT)
-    (out / 'data' / 'shader_list.tsv').write_text(text, encoding='utf-8', newline='\n')
     for p in pgo.values():
         for f in (p, p.with_suffix('.json')):
             if f.is_file():
@@ -456,7 +456,7 @@ def version():
     return (ROOT / 'VERSION').read_text(encoding='utf-8').strip() + '+' + r.stdout.strip()
 
 
-# ---- TotK-Setup.exe --------------------------------------------------------------------------------------------------
+# ---- Tera-Setup.exe --------------------------------------------------------------------------------------------------
 
 def c_wide(text):
     """A C wide string literal of text: ASCII as is, everything else as a universal character name."""
@@ -495,7 +495,7 @@ def build_launcher(out, llvm):
     run([llvm / 'bin' / 'llvm-windres.exe', '-I', ROOT / 'runtime', '-O', 'coff',
          ROOT / 'installer' / 'launcher' / 'launcher.rc', '-o', res], env=env)
     run([llvm / 'bin' / 'clang.exe', '-O2', '-mwindows', '-Wall', '-Wl,-s', '-I', work,
-         ROOT / 'installer' / 'launcher' / 'launcher.c', res, '-o', out / 'TotK-Setup.exe'], env=env)
+         ROOT / 'installer' / 'launcher' / 'launcher.c', res, '-o', out / 'Tera-Setup.exe'], env=env)
 
 
 # ---- checks ----------------------------------------------------------------------------------------------------------
@@ -565,7 +565,7 @@ def prove(out, cpu='v3'):
          '--deps', out / 'runtime' / 'deps', '--runtime', out / 'runtime',
          '--runtime-lib', out / 'runtime' / ('libtotkrt-v2.a' if cpu == 'v2' else 'libtotkrt.a'),
          '--ninja', out / 'bin' / 'ninja.exe', '--version', version, '--gen', gen, '--out', chk, '--exefs', ext / 'exefs',
-         '--romfs', ext / 'romfs', '--profile', chk / 'profile', *(['--pgo', pgo] if pgo.is_file() else [])],
+         '--romfs', ext / 'romfs-image' if (ext / 'romfs-image').is_dir() else ext / 'romfs', '--profile', chk / 'profile', *(['--pgo', pgo] if pgo.is_file() else [])],
         env=env)
     print(f'prove: build {time.time() - t0:.0f} s')
     for dll in ('SDL3.dll', 'libopus-0.dll'):

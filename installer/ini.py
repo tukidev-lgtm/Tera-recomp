@@ -14,9 +14,10 @@ LANGUAGES = ('ja', 'en-US', 'en-GB', 'fr', 'fr-CA', 'de', 'it', 'es', 'es-419', 
              'zh-Hans', 'zh-Hant')
 # Older installer builds wrote these two codes; they are read as the canonical ones and rewritten on the next install.
 ALIASES = {'zh-CN': 'zh-Hans', 'zh-TW': 'zh-Hant'}
-# Their text falls back to the Switch shared fonts (runtime/ov_system.c), which the fonts step extracts from the
-# firmware folder when the player gives one.
-NEED_SHARED_FONTS = ('ko', 'zh-Hans', 'zh-Hant')
+# Languages whose text needs the Switch shared fonts (runtime/ov_system.c), which the fonts step extracts from the
+# firmware folder. TotK used them only for Korean and Chinese; Pokemon Scarlet draws all its text with them, so every
+# language needs the firmware folder.
+NEED_SHARED_FONTS = LANGUAGES
 
 ACTIVE = re.compile(r'^(\s*)(?:totk_)?lang(\s*=\s*)(.*?)(\s*)$', re.IGNORECASE)
 COMMENTED = re.compile(r'^\s*[#;]\s*(?:totk_)?lang\s*=.*$', re.IGNORECASE)

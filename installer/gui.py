@@ -268,7 +268,7 @@ class App:
         self.label(f, 'ui.compressed_help', wraplength=WRAP, justify='left').pack(anchor='w', pady=(dpi.px(8), 0))
         self.label(f, 'ui.firmware_help', wraplength=WRAP, justify='left').pack(anchor='w', pady=(dpi.px(8), 0))
         # On by default and named with its source and licence: the player sees what is downloaded and can untick it
-        self.dlss_var = tk.BooleanVar(value=True)
+        self.dlss_var = tk.BooleanVar(value=False)   # Tera Recomp: DLSS not wired up for Scarlet yet
         dlss = ttk.Checkbutton(f, variable=self.dlss_var)
         self.bind_text(dlss, 'text', 'ui.dlss')
         dlss.pack(anchor='w', pady=(dpi.px(8), 0))

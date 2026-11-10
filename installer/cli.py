@@ -51,10 +51,10 @@ def cancel(signum, frame):
 def main(argv=None):
     ap = Parser(prog='python -m installer', description=__doc__.splitlines()[0])
     ap.add_argument('--base', type=Path, help='base game, XCI or NSP (or NSZ, XCZ: unpacked first)')
-    ap.add_argument('--update', type=Path, help='the update NSP or NSZ: 1.1.0, 1.2.1 or 1.4.3')
+    ap.add_argument('--update', type=Path, help='the update NSP or NSZ: Pokemon Scarlet 4.0.0')
     ap.add_argument('--keys', type=Path, help='prod.keys')
-    ap.add_argument('--firmware', type=Path, help='Switch firmware folder (Contents/registered) for the shared fonts '
-                                                   'of Chinese, Korean and Traditional Chinese text')
+    ap.add_argument('--firmware', type=Path, help='Switch firmware folder (Contents/registered): the shared fonts '
+                                                   'Pokemon Scarlet draws its text with')
     ap.add_argument('--lang', help='game language, a Switch language code (en-US, en-GB, ja, de, ru, ...)')
     ap.add_argument('--dest', type=Path, required=True, help='install folder')
     ap.add_argument('--root', type=Path, help='release folder or repository (default: the folder above installer/)')
@@ -63,6 +63,8 @@ def main(argv=None):
     ap.add_argument('--verify', action='store_true', help='hash every kept file, also those this release made')
     ap.add_argument('--dlss', action='store_true', help="download NVIDIA's nvngx_dlss.dll (NVIDIA RTX SDK license) next "
                                                       'to the game, for dlaa and the DLSS modes')
+    ap.add_argument('--no-shortcut', dest='shortcut', action='store_false',
+                    help='no desktop shortcut to the game (Windows; made once, on the first finished install)')
     args = ap.parse_args(argv)
 
     # The window cancels with Ctrl+Break to the installer's process group (CREATE_NEW_PROCESS_GROUP), which also reaches

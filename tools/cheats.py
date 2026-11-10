@@ -90,7 +90,7 @@ def parse(text, mod):
     return out
 
 
-TITLE = '0100F2C0115B6000'
+TITLE = '0100A3D008C5C000'   # Pokemon Scarlet (Tera Recomp); was TotK's 0100F2C0115B6000
 
 
 def cheat_files(mods, bid):

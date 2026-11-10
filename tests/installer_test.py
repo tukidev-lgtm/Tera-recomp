@@ -227,6 +227,7 @@ class RenamedVersionTest(unittest.TestCase):
         self.ctx = runner.Context(layout, Path(tmp.name), Path(tmp.name), Reporter(out=out), SimpleNamespace(),
                                   state=state)
 
+    @unittest.skip("TotK's 1.1.0 data; Tera Recomp builds Pokemon Scarlet")
     def test_old_name_is_read_as_1_1_0(self):
         steps.migrate_state(self.ctx)
         self.assertEqual(steps.game_version(self.ctx), '1.1.0')
@@ -277,7 +278,7 @@ class LiftKeyTest(unittest.TestCase):
         self.add_cheats('277178B7DBA1B6D4.txt', '[b]')
         edited = self.key()
         self.assertNotEqual(edited, added)
-        self.add_cheats('277178B7DBA1B6D4.txt', '[c]', mod='Other', where='atmosphere/contents/0100F2C0115B6000/cheats')
+        self.add_cheats('277178B7DBA1B6D4.txt', '[c]', mod='Other', where='atmosphere/contents/0100A3D008C5C000/cheats')
         self.assertNotEqual(self.key(), edited)
 
     def test_exefs_patch_files_change_the_key(self):
@@ -491,7 +492,7 @@ class CleanupTest(unittest.TestCase):
 
 class BaseGameCheckTest(unittest.TestCase):
     """Issue #261: an update NSP chosen as the base game was reported as "not Tears of the Kingdom"."""
-    BASE, UPDATE = '0100F2C0115B6000', '0100F2C0115B6800'
+    BASE, UPDATE = '0100A3D008C5C000', '0100A3D008C5C800'
 
     @staticmethod
     def nca(content_type, title_id):
@@ -567,11 +568,11 @@ class FontsTest(unittest.TestCase):
         self.assertEqual(steps.Fonts().run(self.ctx), {})
         self.assertFalse((self.dest / 'shared-fonts').exists())
 
-    def test_noop_for_other_languages(self):
+    def test_every_language_needs_them(self):   # Scarlet draws all its text with the shared fonts
         self.ctx.lang, self.ctx.options.lang = 'en-US', 'en-US'
         self.fake_tool()
-        self.assertEqual(steps.Fonts().run(self.ctx), {})
-        self.assertFalse((self.dest / 'shared-fonts').exists())
+        self.assertEqual(steps.Fonts().run(self.ctx), {'files': len(steps.SHARED_FONT_FILES)})
+        self.assertTrue(steps.shared_fonts_ready(self.dest))
 
     def test_failed_extraction_keeps_the_old_folder(self):
         self.fake_tool()

@@ -11,7 +11,6 @@ Release (docs/installer.md "Release layout"), root = the unpacked folder:
                             patches.c, ov_zstd.c) and totk.ico; runtime/deps/ holds
                             include/ + lib/ of Vulkan, SDL3, Opus, libvpx and VMA (build_game.py --deps)
     bin/                    totk_xlate.exe (+ totk_xlate.id), hactool.exe, ninja.exe, SDL3.dll, libopus-0.dll
-    data/shader_list.tsv    the MacNativeGames shader list
     data/pgo-<v>.profdata   the execution profile the update's code is compiled with (tools/pgo.py; Windows only);
                             without one the game is built at -O1
     totk.ini.example
@@ -39,7 +38,12 @@ from pathlib import Path
 WIN = os.name == 'nt'
 EXE = '.exe' if WIN else ''
 UCRT = Path(r'C:\msys64\ucrt64\bin')
-SUPPORTED = ('1.2.1', '1.4.3', '1.1.0')   # updates the installer builds; the check identifies the player's by hash
+# Tera Recomp builds Pokemon Scarlet. The check identifies the player's update by the hash of its main.
+GAME_TITLE = '0100A3D008C5C000'                   # application ID of the base game and of the update's Program NCA
+UPDATE_TITLE = '0100A3D008C5C800'                 # the update's Meta NCA
+GAME_NAME = 'Pokemon Scarlet'
+SUPPORTED = ('4.0.0',)                            # updates the installer builds
+ROMFS_ESTIMATE = 10 << 30                         # merged RomFS of a version without recorded hashes (4.0.0: 9.3 GiB)
 
 
 def version_tag(version):
@@ -137,7 +141,7 @@ def release_layout(root):
         ninja=root / 'bin' / ('ninja' + EXE), hactool=root / 'bin' / ('hactool' + EXE),
         xlate=root / 'bin' / ('totk_xlate' + EXE),
         dlls=(root / 'bin' / 'SDL3.dll', root / 'bin' / 'libopus-0.dll') if WIN else (root / 'bin' / 'libSDL3.so.0',),
-        shader_list=root / 'data' / 'shader_list.tsv', ini_example=root / 'totk.ini.example',
+        shader_list=None, ini_example=root / 'totk.ini.example',   # no shader list for Scarlet (steps.TOTK_ASSETS)
         pgo_dir=root / 'data' if WIN else None,
         # Linux: None, the install folder's .setup-temp (installer/cli.py): the AppImage is mounted read-only, and on
         # a Steam Deck /home is often too full for the generated C while the install folder is on the SD card

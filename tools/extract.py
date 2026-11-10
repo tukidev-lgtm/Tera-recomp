@@ -73,11 +73,14 @@ def sha256(path):
         return hashlib.file_digest(f, 'sha256').hexdigest()
 
 
-def load_expected():
+def load_expected(title=None):
+    """{display version: expected data} of the game with application ID title (every file when None; versions of
+    different games then overwrite each other, as the TotK-only callers expect)."""
     versions = {}
-    for path in sorted(DATA.glob('expected-v*.json')):
+    for path in sorted(DATA.glob('expected-*.json')):
         data = json.loads(path.read_text())
-        versions[data['display_version']] = data
+        if title is None or data.get('title_id') == title:
+            versions[data['display_version']] = data
     return versions
 
 
@@ -140,6 +143,9 @@ def report_npdm(exefs, expected):
 
 
 def romfs_verified(romfs, expected):
+    """romfs/ holds the image of `expected`. A version without recorded RomFS hashes (expected['romfs'] None, Scarlet
+    4.0.0 so far) takes the merge's own report: merge_update_romfs writes index.json only after hactool verified all
+    six IVFC levels, and the image must still have the size that report names."""
     index = romfs / 'index.json'
     if not index.is_file() or not (romfs / 'romfs.bin').is_file():
         return False
@@ -147,6 +153,11 @@ def romfs_verified(romfs, expected):
         report = json.loads(index.read_text())
     except ValueError:   # damaged on disk (a flipped bit made it unreadable): extract again instead of failing the setup
         return False
+    if not expected.get('romfs'):
+        try:
+            return report.get('status') == 'pass' and (romfs / 'romfs.bin').stat().st_size == report.get('romfs_size')
+        except OSError:
+            return False
     return report.get('romfs_sha256') == expected['romfs']['sha256'] and report.get('romfs_size') == expected['romfs']['size']
 
 

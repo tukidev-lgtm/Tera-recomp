@@ -5,8 +5,8 @@ version starts with the form filled in.
 
 Absolute paths only. The keys entry is the path of the keys file, never its contents.
 
-Windows: %LOCALAPPDATA%\TotK Recomp\setup.json; elsewhere $XDG_STATE_HOME/totk-recomp/setup.json (default
-~/.local/state/totk-recomp/setup.json). TOTK_SETUP_RECENT names another file (tests, --selftest). Nothing else is
+Windows: %LOCALAPPDATA%\Tera Recomp\setup.json; elsewhere $XDG_STATE_HOME/tera-recomp/setup.json (default
+~/.local/state/tera-recomp/setup.json). TOTK_SETUP_RECENT names another file (tests, --selftest). Nothing else is
 stored: the language comes from the install's own totk-install.json. A file of format 0 (only "dest") still loads.
 """
 import json
@@ -29,9 +29,9 @@ def path():
         return Path(override)
     if sys.platform == 'win32':
         base = os.environ.get('LOCALAPPDATA') or str(Path.home() / 'AppData' / 'Local')
-        return Path(base) / 'TotK Recomp' / 'setup.json'
+        return Path(base) / 'Tera Recomp' / 'setup.json'
     base = os.environ.get('XDG_STATE_HOME') or str(Path.home() / '.local' / 'state')
-    return Path(base) / 'totk-recomp' / 'setup.json'
+    return Path(base) / 'tera-recomp' / 'setup.json'
 
 
 def usable(name, value):
