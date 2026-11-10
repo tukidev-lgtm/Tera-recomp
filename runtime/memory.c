@@ -397,7 +397,7 @@ uint32_t mem_set_attribute(uint64_t a, uint64_t n, uint32_t mask, uint32_t at) {
     return R_OK;
 }
 
-// ---- 0x04/0x05 MapMemory, UnmapMemory: thread stacks move from heap or alias into the stack region by copy; the
+// ---- 0x04/0x05 MapMemory, UnmapMemory: thread stacks move from heap, alias or module data into the stack region by copy; the
 // source is inaccessible while moved and gets the contents back on unmap.
 static int alias_all_mapped(uint64_t a, uint64_t n) {   // under lock
     uint64_t first = (a - L.alias.base) / PAGE;
@@ -406,12 +406,22 @@ static int alias_all_mapped(uint64_t a, uint64_t n) {   // under lock
     return 1;
 }
 
+// A module's writable data and bss (Horizon CodeData, which can be aliased): Scarlet keeps static thread stacks in
+// main's bss and moves them into the stack region like heap stacks.
+static int in_module_data(uint64_t a, uint64_t n) {
+    for (int i = 0; i < ldr_count(); i++) {
+        const RtLoaded *m = ldr_module(i);
+        if (m->size > m->data_off && inside(a, n, (RtRange){m->base + m->data_off, m->size - m->data_off})) return 1;
+    }
+    return 0;
+}
+
 static uint32_t stack_move(int unmap, uint64_t dst, uint64_t src, uint64_t n) {
     if (!n || ((dst | src | n) & (PAGE - 1))) return R_INVALID_ADDRESS;
     if (!inside(dst, n, L.stack)) return R_INVALID_REGION;
     int in_heap = inside(src, n, (RtRange){L.heap.base, heap_size});
     int in_alias = inside(src, n, L.alias);
-    if (!in_heap && !in_alias) return R_INVALID_REGION;
+    if (!in_heap && !in_alias && !in_module_data(src, n)) return R_INVALID_REGION;
     plat_mutex_lock(&lock);
     uint32_t r = R_OK;
     if (in_alias && !alias_all_mapped(src, n)) {

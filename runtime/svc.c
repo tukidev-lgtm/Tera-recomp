@@ -173,9 +173,16 @@ static void svc_body(Cpu *c, uint32_t imm, uint64_t pc) {
     }
     case 0x02: x[0] = mem_set_permission(x[0], x[1], (uint32_t)x[2]); return;
     case 0x03: x[0] = mem_set_attribute(x[0], x[1], (uint32_t)x[2], (uint32_t)x[3]); return;
-    case 0x04:   // MapMemory(x0 dst, x1 src, x2 size)
-        x[0] = on_main_stack(x[0], x[2]) ? KERN_R_INVALID_STATE_MEM : mem_map(x[0], x[1], x[2]);
+    case 0x04: {   // MapMemory(x0 dst, x1 src, x2 size)
+        uint64_t dst = x[0];
+        x[0] = on_main_stack(dst, x[2]) ? KERN_R_INVALID_STATE_MEM : mem_map(dst, x[1], x[2]);
+        if (x[0]) {
+            char d[128];
+            rt_log("MapMemory %#llx <- %s size %#llx failed %#llx", (unsigned long long)dst,
+                   ldr_describe(x[1], d, sizeof d), (unsigned long long)x[2], (unsigned long long)x[0]);
+        }
         return;
+    }
     case 0x05: x[0] = mem_unmap(x[0], x[1], x[2]); return;
     case 0x06: {   // QueryMemory(x0 MemoryInfo*, x2 address -> w1 page info)
         RtMemoryInfo mi;
