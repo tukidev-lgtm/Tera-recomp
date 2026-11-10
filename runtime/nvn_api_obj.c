@@ -615,7 +615,7 @@ NVN_API(nvnWindowInitialize) {
     }
     memcpy(o->tex, s->tex, sizeof o->tex);
     const tex_t *t0 = (const tex_t *)o->tex[0];
-    NVN_LOG("WindowInitialize %d textures, interval %d, first %ux%u format %#x", o->ntex, o->interval,
+    rt_log("nvn: WindowInitialize %d textures, interval %d, first %ux%u format %#x", o->ntex, o->interval,
             t0 ? t0->d.width : 0, t0 ? t0->d.height : 0, t0 ? t0->d.format : 0);
     ret_x(c, 1);
 }
@@ -624,7 +624,13 @@ NVN_API(nvnWindowFinalize) { (void)c; }
 NVN_API(nvnWindowSetPresentInterval) {
     win_t *o = WN(c);
     int v = (int)arg_x(c, 1);
-    if (o->interval != v) NVN_LOG("present interval %d -> %d", o->interval, v);
+    if (o->interval != v) {
+        static int logged;
+        char lr[64];
+        if (logged++ < 16)
+            rt_log("nvn: the game sets present interval %d -> %d (from %s)", o->interval, v,
+                   rt_guest_name(c->x[30], lr, sizeof lr));
+    }
     o->interval = v;
 }
 // void nvnWindowSetCrop(NVNwindow *w, int x, int y, int w, int h)
@@ -641,9 +647,21 @@ NVN_API(nvnWindowSetCrop) {
 // ready, at most at the frame limit (TOTK_FPS_LIMIT: 30 to 240 per second or the monitor's rate): holding it to the
 // 2nd or 3rd tick would only add latency and 50 ms frames.
 #define VSYNC_HZ 60ull
+// TOTK_PRESENT_INTERVAL=<n> (experiment): pace every present to n 60 Hz ticks whatever interval the game set; 0 or
+// unset follows the game. The interval the game asks for is logged when it changes.
+static int interval_override(void) {
+    static int v = -1;
+    if (v < 0) {
+        int n = cfg_int("TOTK_PRESENT_INTERVAL");
+        v = n > 0 && n <= 4 ? n : 0;
+        if (v) rt_log("nvn: present interval forced to %d (TOTK_PRESENT_INTERVAL)", v);
+    }
+    return v;
+}
 static uint64_t present_period(const win_t *o) {
     if (frame_step_realtime()) return frame_step_cap_ns();
-    return (o->interval > 0 ? (uint64_t)o->interval : 1ull) * 1000000000ull / VSYNC_HZ;
+    int iv = interval_override() ? interval_override() : o->interval;
+    return (iv > 0 ? (uint64_t)iv : 1ull) * 1000000000ull / VSYNC_HZ;
 }
 
 // MacNativeGames nvn_pace.h: the present slot is the previous slot plus one period. Early: wait for the slot. Late by

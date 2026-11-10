@@ -1,4 +1,20 @@
-# Patch file for Pokemon Scarlet 4.0.0 main (recomp/patches.py). No code patches yet.
+# Patch file for Pokemon Scarlet 4.0.0 main (recomp/patches.py).
+
+# 60 fps, as the game runs on a Switch 2. The engine's startup config holds dynamicResolution.baseFrameRate, an enum
+# FPS60, FPS30, FPS20, FPS15, FPS12 (the reflection names at main+0x44e7bf0); the shipping data says FPS30.
+# main+0x16df68c turns it into frames per second through the table {60, 30, 20, 15, 12} at main+0x3c63498 (60 for any
+# other value), and its caller (main+0x16df4a0) hands 1 / that rate to the game's systems as their fixed step per
+# frame. The window init (main+0xbcbec8) presents every enum + 1 vsyncs (main+0xbcc01c). The set takes the default
+# branch to 60 and presents every vsync, so the game steps 1/60 s per frame at 60 frames per second.
+set fps60 TOTK_FPS60 1
+# b.hi 0x16df6cc (enum above 4: 60) -> b 0x16df6cc
+site fps60 main 16df6b8 540000a8 14000005
+# add w1, w8, #1 (present interval = enum + 1) -> mov w1, #1
+site fps60 main bcc01c 11000501 52800021
+# The per-frame rate controller (function main+0x2b79f60) buckets the last frame time (16.7, 33.3, 50, 66.4 ms), then
+# sets the present interval to its base level + 1, the base level being the enum again as an int8 at [state+0x20]
+# (main+0x2b7a858), and keeps the lower of base and bucket. ldrsb w20, [x10, #0x20] -> mov w20, #0 (FPS60)
+site fps60 main 2b7a858 39c08154 52800014
 
 # Debugging trace points (runtime/tracepoint.c). Remove before a release build.
 # Boot: nnMain's init chain (main+0x11bcc84) calls the object's virtual main+0x14fd2d8, which locks a field of the
