@@ -40,5 +40,12 @@ def program_nca(records, update=False):
 
 
 def install():
+    """Replace extract_exefs.program_nca. extract.RUN_SCRIPT calls this before every tool it starts, the lifter and the
+    build scripts too, whose sys.path lacks the vendored folder: it is appended here, after everything else."""
+    import os
+    import sys
+    vendor = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'vendor', 'macnativegames')
+    if vendor not in sys.path:
+        sys.path.append(vendor)
     import extract_exefs
     extract_exefs.program_nca = program_nca
