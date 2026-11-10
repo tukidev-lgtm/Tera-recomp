@@ -275,6 +275,12 @@ static void job_done(void *arg) {
     VmaAllocator vma = vk_ctx()->vma;
     vmaInvalidateAllocation(vma, j->alloc, 0, VK_WHOLE_SIZE);
     write_images(j);
+    if (strstr(j->name, "_blocks")) {   // BC blocks also raw, to decode offline (the PNG only shows they are written)
+        char path[700];
+        snprintf(path, sizeof path, "%s/%s.bin", dir, j->name);
+        FILE *f = fopen(path, "wb");
+        if (f) fwrite(j->map, 1, (size_t)j->bytes, f), fclose(f);
+    }
     vmaDestroyBuffer(vma, j->buf, j->alloc);
     plat_add64(&inflight, -(int64_t)j->bytes);
     free(j);
@@ -288,12 +294,13 @@ static void job_done(void *arg) {
 static const char *copy_region(VkExec *ex, VkImage image, VkFormat vf, VkImageAspectFlags aspect, uint32_t level,
                                uint32_t layer, uint32_t z, VkExtent3D ext, uint32_t w, uint32_t h, uint32_t d,
                                const char *name) {
-    const Fmt *f = fmt_of(vf);
+    int sten = aspect == VK_IMAGE_ASPECT_STENCIL_BIT;   // the stencil plane alone: one byte per texel
+    const Fmt *f = fmt_of(sten ? VK_FORMAT_R8_UINT : vf);
     if (!f) return "format not decoded";
     if (__atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED) + 1 != dump_frame && (uint64_t)w * h * d > 65536)
         return "logged frame, large image";
     if (aspect & VK_IMAGE_ASPECT_DEPTH_BIT) aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
-    else if (aspect != VK_IMAGE_ASPECT_COLOR_BIT) return "stencil only";
+    else if (aspect != VK_IMAGE_ASPECT_COLOR_BIT && !sten) return "stencil only";
     uint64_t bytes = (uint64_t)w * h * d * f->bytes;
     uint64_t est = ((uint64_t)h * (1 + 4ull * w * d) + 128) * (mode_of(f) == M_FLOAT ? 2 : 1);
     if ((uint64_t)png_bytes + est > PNG_CAP) return "PNG cap reached";
@@ -576,6 +583,12 @@ static void describe_bindings(Str *b, const VkExec *ex, const VkPipeInfo *info) 
             if (u->addr && vk_mem_resolve(u->addr, 1, &ms)) {
                 uint64_t n = u->size && u->size < ms.avail ? u->size : ms.avail;
                 const float *f = (const float *)(uintptr_t)u->addr;
+                uint64_t nz = 0, first = UINT64_MAX;   // the whole block: how much of it is written at all
+                const uint32_t *w = (const uint32_t *)f;
+                for (uint64_t k = 0; k < n / 4; k++)
+                    if (w[k]) nz++, first = first == UINT64_MAX ? k / 4 : first;
+                sp(b, " nonzero words %llu of %llu", (unsigned long long)nz, (unsigned long long)(n / 4));
+                if (nz) sp(b, ", first at [%llu]", (unsigned long long)first);
                 for (uint64_t k = 0; k < (uint64_t)dump_ubo && (k + 1) * 16 <= n; k++)
                     sp(b, "%s[%llu] %g %g %g %g", k % 4 ? " " : "\n      ", (unsigned long long)k, f[4 * k], f[4 * k + 1],
                        f[4 * k + 2], f[4 * k + 3]);
@@ -609,6 +622,7 @@ static void describe_bindings(Str *b, const VkExec *ex, const VkPipeInfo *info) 
             if (hv && v.set_format) sp(b, " view-nvn-fmt %#x", v.format);
             if (hv && v.set_levels) sp(b, " view-levels %u+%u", v.base_level, v.nlevels);
             if (hv && v.set_layers) sp(b, " view-layers %u+%u", v.min_layer, v.nlayers);
+            if (hv && v.set_dsmode) sp(b, " view-dsmode %s", v.dsmode ? "stencil" : "depth");
             samp_par s;
             if (img) {
                 // storage image: no sampler
@@ -748,6 +762,14 @@ void vk_dump_pass_end(VkExec *ex) {
         target_line(ex, &ex->color[i], tag, n);
     }
     if (ex->depth.tex) target_line(ex, &ex->depth, "td", n);
+    if (ex->depth.tex && ex->depth.image && (ex->depth.aspect & VK_IMAGE_ASPECT_STENCIL_BIT) && !ex->depth.is3d &&
+        ex->depth.samples == 1 && !pass_skip) {   // the stencil plane as ts (r8ui, scaled by its maximum)
+        char name[160];
+        snprintf(name, sizeof name, "pass_%04d_ts_%ux%u_stencil", n, ex->depth.width, ex->depth.height);
+        const char *why = copy_out(ex, ex->depth.image, VK_FORMAT_R8_UINT, VK_IMAGE_ASPECT_STENCIL_BIT, ex->depth.level,
+                                   ex->depth.base_layer, ex->depth.width, ex->depth.height, 1, name);
+        fprintf(passes_f, "  ts: stencil -> %s.png%s%s\n", name, why ? " skipped: " : "", why ? why : "");
+    }
     for (int i = 0; i < nents; i++) {
         fprintf(passes_f, "  pipe %d (draws %d): %s", i, ents[i].draws, ents[i].text);
         free(ents[i].text);
@@ -867,11 +889,14 @@ static volatile int32_t dump_requested;   // F9 (vk_dump_request): the next repl
 
 void vk_dump_request(void) { __atomic_store_n(&dump_requested, 1, __ATOMIC_RELEASE); }
 
-// The replay thread, before each submission: an F9 request arms the frame two presents ahead (once per run)
+// The replay thread, before each submission: an F9 request arms the frame six presents ahead, with the four before it
+// logged without images (once per run)
 void vk_dump_poll(void) {
     if (!__atomic_exchange_n(&dump_requested, 0, __ATOMIC_ACQ_REL) || dump_frame) return;
-    dump_frame = __atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED) + 3;
+    uint64_t now = __atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED);
+    dump_frame = now + 6;
     dump_setup();
+    log_from = now + 2;   // the four frames before it go to passes.txt too (passes some frames skip, history buffers)
 }
 
 void vk_dump_init(void) {

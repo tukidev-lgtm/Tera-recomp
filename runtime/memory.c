@@ -163,7 +163,77 @@ void mem_freeze_stats(uint64_t *frozen, uint64_t *freezes, uint64_t *fault_thaws
 // The first write into a frozen region thaws it and retries. A fault in a region another thread thawed meanwhile
 // retries too; any other fault goes on to the crash handler.
 // The platform's write-fault hook (plat_mem_fault_hook): 1 retries the write.
+// TOTK_WATCH=<address>:<size> (debugging): who writes into a guest memory range. The replay (vk_exec_record, through
+// mem_watch_poll) seals the range read-only once it is committed and again every submission; a write into it is logged
+// with the writer (a lifted function, or the host code address), up to 64 distinct writers, and its page is unsealed
+// until the next poll.
+uint64_t rt_lifted_function(uintptr_t rip);   // main.c
+static uint64_t watch_lo, watch_hi, watch_pcs[64];
+static int watch_state, watch_npcs;   // 0 not read yet, 1 off, 2 on
+static PlatMutex watch_lock = PLAT_MUTEX_INIT;
+
+void mem_watch_poll(void) {
+    if (watch_state == 0) {
+        const char *e = cfg_get("TOTK_WATCH");
+        char *q;
+        watch_state = 1;
+        if (e && *e && (watch_lo = strtoull(e, &q, 0)) && *q == ':' && (watch_hi = watch_lo + strtoull(q + 1, NULL, 0)) > watch_lo) {
+            watch_lo &= ~(PAGE - 1), watch_hi = (watch_hi + PAGE - 1) & ~(PAGE - 1);
+            watch_state = 2;
+            rt_log("watch: writes into %#llx..%#llx are logged", (unsigned long long)watch_lo, (unsigned long long)watch_hi);
+        }
+    }
+    if (watch_state != 2) return;
+    for (uint64_t a = watch_lo; a < watch_hi; a += PAGE) {
+        uint64_t end;
+        if (plat_mem_state(a, a + PAGE, &end) == PLAT_PROT_RW) plat_mem_protect(a, PAGE, PLAT_PROT_READ);
+    }
+}
+
+// The C++ class of a guest object, by its vtable's type info (Itanium ABI: vtable[-1] -> type info, whose second word
+// is the mangled name), when every pointer on the way is readable guest memory
+static void watch_class(int r, uint64_t obj) {
+    uint64_t vt, ti, nm;
+    char d[160];
+    if (!obj || !mem_guest_readable(obj, 8)) return;
+    vt = *(const uint64_t *)(uintptr_t)obj;
+    if (!vt || !mem_guest_readable(vt - 8, 8)) return;
+    ti = *(const uint64_t *)(uintptr_t)(vt - 8);
+    const char *name = "";
+    if (ti && mem_guest_readable(ti + 8, 8) && (nm = *(const uint64_t *)(uintptr_t)(ti + 8)) && mem_guest_readable(nm, 1))
+        name = (const char *)(uintptr_t)nm;
+    rt_log("watch:   x%d %#llx vtable %s class %.120s", r, (unsigned long long)obj, ldr_describe(vt, d, sizeof d), name);
+}
+
+static int watch_fault(uint64_t a) {
+    if (watch_state != 2 || a < watch_lo || a >= watch_hi) return 0;
+    uint64_t pc = plat_fault_pc(), f = pc ? rt_lifted_function((uintptr_t)pc) : 0, key = f ? f : pc;
+    if (!f && kern_cpu()) key = kern_cpu()->x[30];   // a host override: one line per guest caller
+    plat_mutex_lock(&watch_lock);
+    int fresh = watch_npcs < 64;
+    for (int i = 0; i < watch_npcs && fresh; i++) fresh = watch_pcs[i] != key;
+    if (fresh) watch_pcs[watch_npcs++] = key;
+    plat_mutex_unlock(&watch_lock);
+    if (fresh) {
+        char d[160];
+        if (f) rt_log("watch: write to %#llx by lifted f_%llx = %s", (unsigned long long)a, (unsigned long long)f,
+                      ldr_describe(f, d, sizeof d));
+        else {
+            Cpu *c = kern_cpu();   // a host override (memcpy) on a guest thread: the guest code that called it
+            char g[160] = "";
+            if (c) ldr_describe(c->x[30], g, sizeof g);
+            rt_log("watch: write to %#llx by host code at %#llx%s%s (x0 %#llx x1 %#llx x2 %#llx)", (unsigned long long)a,
+                   (unsigned long long)pc, c ? ", called from " : "", g, c ? (unsigned long long)c->x[0] : 0ull,
+                   c ? (unsigned long long)c->x[1] : 0ull, c ? (unsigned long long)c->x[2] : 0ull);
+            for (int r = 19; c && r <= 22; r++) watch_class(r, c->x[r]);
+        }
+    }
+    plat_mem_protect(a & ~(PAGE - 1), PAGE, PLAT_PROT_RW);
+    return 1;
+}
+
 static int thaw_fault(uint64_t a) {
+    if (watch_fault(a)) return 1;
     if (a >= RT_ADDRESS_LIMIT || !watched(a, 1)) return 0;
     plat_mutex_lock(&frz_lock);
     int was = frz[a >> FRZ_SHIFT];

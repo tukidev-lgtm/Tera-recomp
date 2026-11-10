@@ -928,6 +928,7 @@ uint64_t plat_mem_written(uint64_t addr, uint64_t n, uint64_t *pages, uint64_t m
 // SDL), then goes to the crash hook (main.c), which reports it and ends the process. Without a crash hook the fault
 // gets the default action. Runs on the thread's signal stack.
 static int (*fault_hook)(uint64_t addr);
+uint64_t plat_fault_pc(void) { return 0; }
 static void (*crash_fn)(const PlatCrash *c);
 
 static void fault_handler(int sig, siginfo_t *si, void *uc) {

@@ -2335,8 +2335,26 @@ static void op_xfb(VkExec *ex, uint32_t op, const void *payload) {
     }
 }
 
+// Draws prepare_draw skips, by reason, logged every 200000 draws (bring-up: which passes never reach the GPU)
+static uint64_t pd_skips[9], pd_calls;
+static const char *const pd_why[9] = {"render disabled", "empty scissor", "no program", "no vertex stage",
+                                      "shader not ready", "shader failed", "dlaa", "pipeline building", "pipeline failed"};
+#define PD_SKIP(n) (pd_skips[n]++, 0)
+static void pd_tick(void) {
+    if (++pd_calls % 200000) return;
+    int any = 0;
+    for (int k = 0; k < 9; k++) any |= pd_skips[k] != 0;
+    if (!any) return;
+    char b[512];
+    int o = snprintf(b, sizeof b, "vk: draws skipped in the last 200000:");
+    for (int k = 0; k < 9; k++)
+        if (pd_skips[k]) o += snprintf(b + o, sizeof b - (size_t)o, " %s %llu,", pd_why[k], (unsigned long long)pd_skips[k]), pd_skips[k] = 0;
+    rt_log("%s", b);
+}
+
 static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
-    if (ex->render_disabled) return 0;
+    pd_tick();
+    if (ex->render_disabled) return PD_SKIP(0);
     cb_res(ex);
     dummies_init();
     if (ex->pass_noatt) {   // no attachment: the pass covers this draw's viewport or scissor, reopened when it needs more
@@ -2349,8 +2367,8 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
     vk_exec_pass_begin(ex);
     VkRect2D sc = vk_exec_scissor(ex);
     // an empty scissor draws nothing, but a transform feedback pass (rasterizer discard, often no target) still captures
-    if ((!sc.extent.width || !sc.extent.height) && !(ex->xfb_on && xfb_mask(ex))) return 0;
-    if (!ex->prog) return warn_once(W_PROGRAM, "a draw without a bound program is skipped"), 0;
+    if ((!sc.extent.width || !sc.extent.height) && !(ex->xfb_on && xfb_mask(ex))) return PD_SKIP(1);
+    if (!ex->prog) return warn_once(W_PROGRAM, "a draw without a bound program is skipped"), PD_SKIP(2);
     int has_vs, has_fs, vs_wait = 0, fs_wait = 0, memo = shader_memo_on();
     const GfxShader *vs, *fs;
     uint32_t gen = memo ? vk_texture_slots_gen() : 0;   // before shader_for, whose lookups may bump it
@@ -2369,19 +2387,19 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
         if (memo && vs && !vs_wait && !fs_wait && (!has_fs || fs))
             memo_key(ex, gen, &SM.k), SM.vs = vs, SM.fs = fs, SM.has_fs = has_fs, SM.valid = 1;
     }
-    if (!has_vs) return warn_once(W_NO_VS, "a draw with a program that has no vertex stage is skipped"), 0;
+    if (!has_vs) return warn_once(W_NO_VS, "a draw with a program that has no vertex stage is skipped"), PD_SKIP(3);
     // A draw into a target the previous frame did not render (or into none) waits for a pending shader or pipeline:
     // one-shot draws (volumes and LUTs generated once, later only sampled) would leave their target empty for the
     // session. A draw into per-frame targets is skipped until they are ready and comes back next frame.
     int oneshot = -1, skip = pipe_skip_mode();   // -1: not looked up
     if (vs_wait || fs_wait) {
-        if (!(oneshot = !vk_exec_targets_recent(ex, skip >= 1))) return perf_count(PERF_CNT_SHADER_SKIP), 0;   // skipped until ready
+        if (!(oneshot = !vk_exec_targets_recent(ex, skip >= 1))) return perf_count(PERF_CNT_SHADER_SKIP), PD_SKIP(4);   // skipped until ready
         perf_count(PERF_CNT_ONESHOT_WAIT);
         if (vs_wait) vs = shader_for(ex, NVN_STAGE_VS, &has_vs, NULL, 1);
         if (fs_wait) fs = shader_for(ex, NVN_STAGE_FS, &has_fs, NULL, 1);
     }
-    if (!vs || (has_fs && !fs)) return 0;
-    if (vk_dlaa_skip_draw(ex, fs)) return 0;   // the game's FXAA off, or its scaling replaced by DLSS (vk_dlaa.c)
+    if (!vs || (has_fs && !fs)) return PD_SKIP(5);
+    if (vk_dlaa_skip_draw(ex, fs)) return PD_SKIP(6);   // the game's FXAA off, or its scaling replaced by DLSS (vk_dlaa.c)
     uint32_t fbl = feedback_prepare(ex, fs);
     VkPipeState s = ex->pipe;
     s.vs = vs, s.fs = fs;
@@ -2444,8 +2462,8 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
                (unsigned long long)__atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED) + 1, waited / 1e6, why,
                pending ? ", skipped after all" : "", count, ex->pass_w, ex->pass_h, tg);
     }
-    if (pending) return 0;   // a background worker is building it: the draw is skipped until it is ready
-    if (!p || !info) return warn_once(W_PIPELINE, "a graphics pipeline could not be created: draws with it are skipped"), 0;
+    if (pending) return PD_SKIP(7);   // a background worker is building it: the draw is skipped until it is ready
+    if (!p || !info) return warn_once(W_PIPELINE, "a graphics pipeline could not be created: draws with it are skipped"), PD_SKIP(8);
     bind_pipeline(ex, VK_PIPELINE_BIND_POINT_GRAPHICS, p);
     if (!B.st_valid || memcmp(&B.st, &s, sizeof s)) {
         // TOTK_DYN_DELTA: only the dynamic states whose values changed since the last call in this command buffer. A

@@ -610,12 +610,15 @@ uint64_t plat_mem_written(uint64_t addr, uint64_t n, uint64_t *pages, uint64_t m
 }
 
 static int (*fault_hook)(uint64_t addr);
+static _Thread_local uint64_t fault_pc;
+uint64_t plat_fault_pc(void) { return fault_pc; }
 
 // A write access violation (ExceptionInformation[0] == 1) goes to the hook; registered first, before the crash handler.
 static LONG CALLBACK fault_veh(EXCEPTION_POINTERS *ep) {
     const EXCEPTION_RECORD *er = ep->ExceptionRecord;
     if (er->ExceptionCode != EXCEPTION_ACCESS_VIOLATION || er->NumberParameters < 2 || er->ExceptionInformation[0] != 1)
         return EXCEPTION_CONTINUE_SEARCH;
+    fault_pc = (uint64_t)ep->ContextRecord->Rip;
     return fault_hook((uint64_t)er->ExceptionInformation[1]) ? EXCEPTION_CONTINUE_EXECUTION : EXCEPTION_CONTINUE_SEARCH;
 }
 

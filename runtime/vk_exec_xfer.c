@@ -332,12 +332,15 @@ typedef struct {
 } Sub;
 
 // Resolves tex, its view and a copy region to image coordinates. 0 (warned) when the copy cannot be replayed.
-static int sub_resolve(const tex_t *t, const view_t *v, int has_v, const NVNcopyRegion *r, int defaults_to_level,
-                       Sub *s) {
+// t2t: a texture-to-texture copy, where a depth-stencil texture stored in a wider host format (D24S8 as D32S8) copies
+// as is between two images of that format (copy_t2t checks they match), both aspects at once.
+static int sub_resolve_k(const tex_t *t, const view_t *v, int has_v, const NVNcopyRegion *r, int defaults_to_level,
+                         Sub *s, int t2t) {
     memset(s, 0, sizeof *s);
     if (!t) return 0;
     TexVkFormat f;
-    if (!tex_vk_format(t->d.format, &f) || f.vk != f.ideal || f.expand_rgb || f.astc_bw) {
+    int ds_wide = t2t && tex_vk_format(t->d.format, &f) && f.depth && f.stencil && !f.expand_rgb && !f.astc_bw;
+    if (!ds_wide && (!tex_vk_format(t->d.format, &f) || f.vk != f.ideal || f.expand_rgb || f.astc_bw)) {
         warn_once(W_FORMAT, "copy of format %#x texture (decoded or expanded on upload): skipped", t->d.format);
         return 0;
     }
@@ -350,6 +353,7 @@ static int sub_resolve(const tex_t *t, const view_t *v, int has_v, const NVNcopy
     const VkTexImage *img = s->img;
     if (img->aspect & VK_IMAGE_ASPECT_COLOR_BIT) s->aspect = VK_IMAGE_ASPECT_COLOR_BIT;
     else if (img->aspect == VK_IMAGE_ASPECT_DEPTH_BIT) s->aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
+    else if (t2t) s->aspect = img->aspect;   // depth and stencil together
     else {
         warn_once(W_FORMAT, "copy of depth-stencil format %#x texture: skipped", t->d.format);
         return 0;
@@ -372,6 +376,11 @@ static int sub_resolve(const tex_t *t, const view_t *v, int has_v, const NVNcopy
         return 0;
     }
     return 1;
+}
+
+static int sub_resolve(const tex_t *t, const view_t *v, int has_v, const NVNcopyRegion *r, int defaults_to_level,
+                       Sub *s) {
+    return sub_resolve_k(t, v, has_v, r, defaults_to_level, s, 0);
 }
 
 static VkImageSubresourceLayers sub_layers(const Sub *s) {
@@ -437,8 +446,8 @@ static void copy_buffer_image(VkExec *ex, const p_copy_b2t *p, int to_image) {
 
 static void copy_t2t(VkExec *ex, const p_copy_t2t *p) {
     Sub s, d;
-    if (!sub_resolve(p->src, &p->sv, p->has_sv, &p->sr, 1, &s)) return;
-    if (!sub_resolve(p->dst, &p->dv, p->has_dv, &p->dr, 1, &d)) return;
+    if (!sub_resolve_k(p->src, &p->sv, p->has_sv, &p->sr, 1, &s, 1)) return;
+    if (!sub_resolve_k(p->dst, &p->dv, p->has_dv, &p->dr, 1, &d, 1)) return;
     d.nz = s.nz;
     int same_size = s.w == d.w && s.h == d.h;
     int same_format = s.img->format == d.img->format;

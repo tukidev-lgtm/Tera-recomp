@@ -189,6 +189,7 @@ static int by_host(const void *a, const void *b) {
 
 // The lifted function that contains a host code address, by the nearest function start below it; 0 outside the lifted
 // code.
+uint64_t rt_lifted_function(uintptr_t rip);
 static uint64_t lifted_function(uintptr_t rip) {
     if (!fn_rev) {
         static RtModule mods[MAX_MODULES];
@@ -603,3 +604,6 @@ int main(int argc, char **argv) {
     if (!strcmp(mode, "--boot")) { cfg.boot = 1; rt_boot(); return 0; }
     return usage(argv[0]);
 }
+
+// memory.c TOTK_WATCH: the lifted function that holds a host code address (0 outside the lifted code)
+uint64_t rt_lifted_function(uintptr_t rip) { return lifted_function(rip); }
