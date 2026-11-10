@@ -199,5 +199,6 @@
  "launcher.title": "Tera Recomp 安装程序",
  "launcher.python_missing": "安装文件不完整：Tera-Setup.exe 旁边缺少 python 文件夹。请重新完整解压压缩包，并从解压后的文件夹启动 Tera-Setup.exe。",
  "phase.cleanup.shortcut": "正在创建桌面快捷方式",
- "warn.shortcut_failed": "无法创建桌面快捷方式（{detail}）。游戏已安装：请运行安装文件夹中的 totk.exe。"
+ "warn.shortcut_failed": "无法创建桌面快捷方式（{detail}）。游戏已安装：请运行安装文件夹中的 totk.exe。",
+ "cli.game_folder": "游戏文件夹不完整：{detail}。其中必须包含《宝可梦 朱》本体、4.0.0 更新、prod.keys 和固件文件夹（Contents/registered）。"
 }

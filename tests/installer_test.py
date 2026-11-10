@@ -721,5 +721,52 @@ class DlssTest(unittest.TestCase):
         self.assertEqual(self.warnings(), [])
 
 
+
+class GameFolderTest(unittest.TestCase):
+    """--game: the inputs found in one folder (installer/gamefolder.py), by name when the keys cannot open the files."""
+
+    def test_finds_every_input(self):
+        from installer import gamefolder
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / 'Scarlet [0100A3D008C5C000][v0][Base].nsp').write_bytes(b'')
+            (d / 'Scarlet [0100A3D008C5C800][v786432][UPD].nsp').write_bytes(b'')
+            (d / 'prod.keys').write_text('')
+            reg = d / 'firmware' / 'registered'
+            reg.mkdir(parents=True)
+            for i in range(gamefolder.FIRMWARE_MIN_NCAS):
+                (reg / f'{i:032x}.nca').write_bytes(b'')
+            f = gamefolder.find(d)
+            self.assertEqual((f['base'].name[-14:], f['update'].name[-9:]), ('[v0][Base].nsp', '[UPD].nsp'))
+            self.assertEqual((f['keys'].name, f['firmware']), ('prod.keys', reg))
+
+    def test_names_what_is_missing(self):
+        from installer import gamefolder
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / 'prod.keys').write_text('')
+            with self.assertRaisesRegex(gamefolder.GameFolderError, 'the base game, the update, .*firmware'):
+                gamefolder.find(d)
+
+
+class ProgressLinesTest(unittest.TestCase):
+    """--progress-lines: RecompLauncher's `progress <0..1> <text>` lines from the JSON events."""
+
+    def test_lines(self):
+        from installer.cli import LineOut
+        out = io.StringIO()
+        lines = LineOut(out)
+        rep = Reporter(out=lines)
+        lines.reporter = rep
+        rep.emit('start', steps=['check', 'extract'])
+        rep.step('check', 'started')
+        rep.step('check', 'done', seconds=1.0)
+        rep.progress('extract', 'merge', 5, 10, 'bytes')
+        rep.error('cli.usage', {'detail': 'x'})
+        got = out.getvalue().splitlines()
+        self.assertEqual(got[0], 'progress 0.000 ' + rep.catalog['step.check'])
+        self.assertTrue(got[1].startswith('progress 0.500 '))
+        self.assertTrue(got[2].startswith('progress 0.750 '))
+        self.assertTrue(got[3].startswith('error '))
+
 if __name__ == '__main__':
     unittest.main()

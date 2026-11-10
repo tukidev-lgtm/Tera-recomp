@@ -199,5 +199,6 @@
  "lang.zh-Hant": "Chinese (Traditional)",
  "check.firmware_needed": "Pokemon Scarlet draws all its text with the Switch system fonts: choose the firmware folder (the firmware's Contents/registered folder, for example from an emulator's install) so the setup can extract them.",
  "phase.cleanup.shortcut": "Creating the desktop shortcut",
- "warn.shortcut_failed": "The desktop shortcut could not be created ({detail}). The game is installed: start totk.exe in the install folder."
+ "warn.shortcut_failed": "The desktop shortcut could not be created ({detail}). The game is installed: start totk.exe in the install folder.",
+ "cli.game_folder": "The game folder is incomplete: {detail}. It must hold the Pokemon Scarlet base game, the 4.0.0 update, prod.keys and the firmware folder (Contents/registered)."
 }

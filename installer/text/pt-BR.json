@@ -199,5 +199,6 @@
  "launcher.title": "Instalação do Tera Recomp",
  "launcher.python_missing": "Os arquivos da instalação estão incompletos: falta a pasta python ao lado de Tera-Setup.exe. Descompacte o arquivo inteiro de novo e inicie Tera-Setup.exe da pasta descompactada.",
  "phase.cleanup.shortcut": "Criando o atalho na área de trabalho",
- "warn.shortcut_failed": "Não foi possível criar o atalho na área de trabalho ({detail}). O jogo está instalado: inicie totk.exe na pasta de instalação."
+ "warn.shortcut_failed": "Não foi possível criar o atalho na área de trabalho ({detail}). O jogo está instalado: inicie totk.exe na pasta de instalação.",
+ "cli.game_folder": "A pasta do jogo está incompleta: {detail}. Ela precisa conter o jogo base de Pokemon Scarlet, a atualização 4.0.0, o prod.keys e a pasta do firmware (Contents/registered)."
 }

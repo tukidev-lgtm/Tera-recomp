@@ -371,7 +371,7 @@ class Check(Step):
         lang = requested_lang(ctx)
         if not lang:
             raise InstallError('check.lang_missing')
-        if lang not in ini.LANGUAGES:
+        if lang not in ini.LANGUAGES and lang != ini.AUTO:
             raise InstallError('check.lang_unknown', lang=lang, known=', '.join(ini.LANGUAGES))
         firmware = firmware_dir(getattr(ctx.options, 'firmware', None))
         if firmware is not None:

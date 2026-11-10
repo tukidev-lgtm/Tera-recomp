@@ -199,5 +199,6 @@
  "launcher.title": "Установка Tera Recomp",
  "launcher.python_missing": "Файлы установщика неполные: рядом с Tera-Setup.exe нет папки python. Распакуйте архив целиком заново и запустите Tera-Setup.exe из распакованной папки.",
  "phase.cleanup.shortcut": "Создание ярлыка на рабочем столе",
- "warn.shortcut_failed": "Не удалось создать ярлык на рабочем столе ({detail}). Игра установлена: запустите totk.exe в папке установки."
+ "warn.shortcut_failed": "Не удалось создать ярлык на рабочем столе ({detail}). Игра установлена: запустите totk.exe в папке установки.",
+ "cli.game_folder": "Папка с игрой неполная: {detail}. В ней должны быть базовая игра Pokemon Scarlet, обновление 4.0.0, prod.keys и папка прошивки (Contents/registered)."
 }

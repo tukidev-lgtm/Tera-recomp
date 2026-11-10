@@ -17,7 +17,9 @@ ALIASES = {'zh-CN': 'zh-Hans', 'zh-TW': 'zh-Hant'}
 # Languages whose text needs the Switch shared fonts (runtime/ov_system.c), which the fonts step extracts from the
 # firmware folder. TotK used them only for Korean and Chinese; Pokemon Scarlet draws all its text with them, so every
 # language needs the firmware folder.
-NEED_SHARED_FONTS = LANGUAGES
+# AUTO (`--lang auto`): no `lang` line is written, so the game follows the Windows user locale (runtime/ov_system.c).
+AUTO = 'auto'
+NEED_SHARED_FONTS = LANGUAGES + (AUTO,)
 
 ACTIVE = re.compile(r'^(\s*)(?:totk_)?lang(\s*=\s*)(.*?)(\s*)$', re.IGNORECASE)
 COMMENTED = re.compile(r'^\s*[#;]\s*(?:totk_)?lang\s*=.*$', re.IGNORECASE)
@@ -70,7 +72,7 @@ def write(dest, lang, example=None):
         text = Path(example).read_text(encoding='utf-8')
     else:
         text = ''
-    new = set_language(text, lang)
+    new = text if canonical_language(lang) == AUTO else set_language(text, lang)
     if path.is_file() and new == text:
         return path
     tmp = path.with_name('totk.ini.tmp')
