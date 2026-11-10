@@ -9,6 +9,7 @@ players at once, each on their own save and at their own pace.
 
 [![Follow @Tukidev on X for updates](https://img.shields.io/badge/updates-%40Tukidev-000000?style=for-the-badge&logo=x)](https://x.com/Tukidev)
 [![Download Tera-Setup.zip](https://img.shields.io/github/v/release/tukidev-lgtm/Tera-recomp?style=for-the-badge&label=download)](https://github.com/tukidev-lgtm/Tera-recomp/releases/latest/download/Tera-Setup.zip)
+[![Verified developer on RecompStore](https://recompstore.com/assets/press/verified-dark.svg)](https://recompstore.com/dev/tukidev-lgtm)
 
 By [Tukidev](https://x.com/Tukidev): follow for progress updates · [Download](https://github.com/tukidev-lgtm/Tera-recomp/releases/latest/download/Tera-Setup.zip) · [Report a bug](https://github.com/tukidev-lgtm/Tera-recomp/issues/new)
 
