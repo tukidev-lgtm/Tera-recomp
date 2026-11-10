@@ -15,6 +15,16 @@ Scarlet 4.0.0 on the TotK runtime, from the first run on. Each step names what s
 | `bcat` service | distribution content polled at boot | `ov_bcat.c`: synced, nothing delivered |
 | no function at main+0x26ca4 | return point after `bl _setjmp`: lifted code had no setjmp/longjmp | `gen.py` lifts setjmp calls through `rt_setjmp`, `guest_jmp.c` restores registers on `longjmp` |
 | `csrng` service | `nn::crypto::GenerateCryptographicallyRandomBytes` | override with the host system RNG (`ov_system.c`) |
+| `bt` service | `nn::bluetooth::InitializeBle` (Pokemon GO Plus +) | `ov_bluetooth.c`: Bluetooth without smart devices |
+| `audout:u` service | `nn::audio::OpenDefaultAudioOut` (main and subsdk0) | `ov_audout.c`: AudioOut on an SDL3 stream |
+| NVN multisample/blend getters | procs TotK never called | `nvn_sv.c` |
+| shaders fail: translator not found | `build/xlate/totk_xlate.exe` was never built | `tools/build_xlate.py` (once per checkout) |
+| SDK abort in `CreateThread` | `MapAliasStack`: the thread stack lives in main's bss, which MapMemory refused | `memory.c` accepts module data as a stack source |
+| `nvnCommandBufferBeginTransformFeedback` | transform feedback passes at boot | **gap**: no-ops that log once; capture is not implemented (needs the program's XFB layout) |
+
+**Milestone (2026-11-09):** first frames, language selection, name and appearance editor, and the opening cutscene with
+text, running without a crash. Rendering has many visual errors; the character preview is black (possibly the missing
+transform feedback).
 
 ## Solved: the null object at main+0x14fe800
 

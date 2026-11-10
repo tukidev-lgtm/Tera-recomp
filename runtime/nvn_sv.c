@@ -1,6 +1,6 @@
 // NVN procs Scarlet/Violet ask for that TotK never called: getters of objects the front end already stores
 // (nvn_obj.h), debug and checkpoint controls with no host effect, and waits the host's in-order submission already
-// satisfies. Procs that do GPU work (transform feedback, tessellation levels, indirect multi-draw, tiled downsample)
+// satisfies. Procs that do GPU work (tessellation levels, indirect multi-draw, tiled downsample)
 // are not here on purpose: they keep the weak stub in nvn_procs.c, which stops with the proc's name, so the first
 // game path that needs one is found instead of drawing wrong.
 #include <stdint.h>
@@ -132,3 +132,20 @@ NVN_API(nvnBlendStateGetAdvancedNormalizedDst) { ret_x(c, 0); }
 // ---------- OpenGL interop: there is no GL context; a texture builder never names a GL texture
 NVN_API(nvnTextureBuilderSetGLTextureName) { (void)c; }
 NVN_API(nvnTextureBuilderGetGLTextureName) { ret_x(c, 0); }
+
+// ---------- Transform feedback. Not captured yet: NVN takes the varying layout from the compiled program's control
+// section, which the front end does not parse, and the translator is not asked for XFB outputs. Scarlet records
+// transform feedback passes at boot; until capture is implemented, binds and begin/pause/resume/end change nothing and
+// DrawTransformFeedback draws nothing, logged once so the gap stays visible (docs/phase3-boot.md).
+static void xfb_gap(const char *what) {
+    static int logged;
+    if (!__atomic_exchange_n(&logged, 1, __ATOMIC_RELAXED))
+        rt_log("nvn: transform feedback is not captured yet (%s); its passes write nothing", what);
+}
+NVN_API(nvnCommandBufferBindTransformFeedbackBuffer) { (void)c; }
+NVN_API(nvnCommandBufferBindTransformFeedbackBuffers) { (void)c; }
+NVN_API(nvnCommandBufferBeginTransformFeedback) { (void)c; xfb_gap("BeginTransformFeedback"); }
+NVN_API(nvnCommandBufferPauseTransformFeedback) { (void)c; }
+NVN_API(nvnCommandBufferResumeTransformFeedback) { (void)c; }
+NVN_API(nvnCommandBufferEndTransformFeedback) { (void)c; }
+NVN_API(nvnCommandBufferDrawTransformFeedback) { (void)c; xfb_gap("DrawTransformFeedback"); }
