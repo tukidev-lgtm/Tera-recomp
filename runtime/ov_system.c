@@ -813,7 +813,7 @@ static void ov_user_difference(Cpu *c) {
 // Korean or Traditional Chinese text, and only for type 0; tools/extract_fonts.py writes
 // them from the user's firmware. Each type is read on first use into guest-visible memory as the BFTTF file the pl
 // shared memory holds; Address is 8 bytes past the file start (after the BFTTF header) and Size the decoded font size,
-// as in MNG. The load state is always Loaded: the game spins until it is, so missing files stop with a named fatal at
+// as in MNG. For Scarlet/Violet the font body is decoded in place (font_data), as the console's shared memory has it. The load state is always Loaded: the game spins until it is, so missing files stop with a named fatal at
 // Address/Size instead of a hang. TOTK_SHARED_FONTS=<dir> overrides <romfs>/../../firmware/shared-fonts.
 #define SHARED_FONT_TYPES 6
 #define BFTTF_MAGIC 0x7f9a0218u
@@ -879,6 +879,17 @@ static const uint8_t *font_data(Cpu *c, const char *fn, int64_t t) {
         fclose(f);
         uint64_t size = got == (size_t)len ? ov_bfttf_size(p, (uint64_t)len) : 0;
         if (!size) rt_fatal("nn::pl: shared font %s is not a BFTTF font", path);
+        // The pl shared memory of the console holds each font as an 8-byte header still XORed with the key and the
+        // font itself in the clear: GetSharedFontAddress points at plain TrueType/OpenType bytes, which Scarlet's
+        // nn::fontll::ScalableFontEngine::LoadFont parses directly (homebrew hands them to FreeType the same way).
+        // The BFTTF file XORs the whole font, big-endian word by word; decode the body, keep the header.
+        if (RT_SV) {
+            uint32_t key = be32(p) ^ BFTTF_MAGIC;
+            for (uint64_t o = 8; o + 4 <= 8 + size; o += 4) {
+                uint32_t w = be32(p + o) ^ key;
+                p[o] = (uint8_t)(w >> 24), p[o + 1] = (uint8_t)(w >> 16), p[o + 2] = (uint8_t)(w >> 8), p[o + 3] = (uint8_t)w;
+            }
+        }
         fonts.size[t] = size;
         __atomic_store_n(&fonts.file[t], p, __ATOMIC_RELEASE);
         rt_log("pl: shared font %lld (%s): %llu bytes at %p (Address %p) from %s", (long long)t, font_type_name(t),
