@@ -29,6 +29,8 @@ ROOT = Path(__file__).resolve().parent.parent
 VENDOR = ROOT / 'tools' / 'vendor' / 'macnativegames'
 # The vendored scripts import each other by bare module name, so their directory goes on the path before importing them.
 sys.path.insert(0, str(VENDOR))
+import sv_titles  # noqa: E402
+sv_titles.install()   # Scarlet and Violet besides TotK, before the names below are bound
 from extract_exefs import (common_tickets, container_entries, load_keys, nca_inventory, program_nca,  # noqa: E402
                            record_offset, require)
 from extract_romfs import index_romfs  # noqa: E402
@@ -89,9 +91,14 @@ def version_dir(expected):
 
 
 # The embeddable Python (a ._pth file) does not put a script's directory on sys.path, so a vendored script that imports
-# its siblings fails when started by path. This stub adds the directory, then runs the script as __main__.
-RUN_SCRIPT = ('import os, runpy, sys; p = sys.argv[1]; sys.path.insert(0, os.path.dirname(p)); sys.argv = sys.argv[1:]; '
-              "runpy.run_path(p, run_name='__main__')")
+# its siblings fails when started by path. This stub adds the directory and tools/ (sv_titles.py, which lets the scripts
+# take Scarlet and Violet), then runs the script as __main__.
+RUN_SCRIPT = ('import os, runpy, sys; p = sys.argv[1]; d = os.path.dirname(p); sys.path.insert(0, d); '
+              'sys.path.insert(0, os.path.dirname(os.path.dirname(d))); sys.argv = sys.argv[1:]; '
+              'import sv_titles; sv_titles.install(); '
+              # extract_exefs.py runs through the module's main(), which then calls the replaced program_nca
+              "m = os.path.basename(p)[:-3]; "
+              "sys.modules[m].main() if m == 'extract_exefs' else runpy.run_path(p, run_name='__main__')")
 
 
 def run_logged(command, log, source=None):

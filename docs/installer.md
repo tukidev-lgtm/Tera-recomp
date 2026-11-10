@@ -1,5 +1,11 @@
 # Installer
 
+> Tera Recomp: the player's steps are in the [README](../README.md#download-and-install-windows). This page is the
+> design inherited from TotK Recomp; for Pokemon Scarlet the inputs are the base game, the 4.0.0 update, prod.keys
+> and the firmware folder (required: the game draws all its text with the shared fonts), the setup is
+> `Tera-Setup.exe`, the prepare step only installs the shader translator, and the first install adds a desktop
+> shortcut (`installer/steps.py` `desktop_shortcut`).
+
 A public release that turns the player's own game files into a playable TotK folder. The release carries no game
 data and no code derived from the game: the installer builds the game on the player's machine. The installed folder
 holds only the game; the installer and its tools stay outside it.

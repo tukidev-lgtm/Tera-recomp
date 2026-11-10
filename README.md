@@ -7,11 +7,63 @@ players at once, each on their own save and at their own pace.
 > **No game files are included.** You need your own legally obtained copy, dumped from your own console, and the keys
 > of that console. The game is built from your files on your machine. Do not share the result.
 
+## Download and install (Windows)
+
+**[Download Tera-Setup.zip](https://github.com/tukidev-lgtm/Tera-recomp/releases/latest/download/Tera-Setup.zip)**
+(about 145 MB). All releases: [Releases](https://github.com/tukidev-lgtm/Tera-recomp/releases).
+
+The download holds the setup and its tools only. The setup builds the game on your PC from your own files, once.
+
+### What you need
+
+- Windows 10 or 11, 64-bit; a graphics card with Vulkan 1.3 (NVIDIA GTX 900 / AMD RX 400 / Intel Arc or newer, with
+  current drivers).
+- About 30 GB free on the disk you install to while the setup runs (12 GB after it).
+- From your own Switch:
+  - the **Pokémon Scarlet base game** (NSP, XCI, NSZ or XCZ);
+  - the **4.0.0 update** (NSP or NSZ);
+  - your console's **`prod.keys`**;
+  - the **firmware folder** (`Contents/registered`, full of `.nca` files): the game draws all its text with the
+    console's system fonts, which the setup takes from there. An emulator's firmware install works.
+
+### Steps
+
+1. Download `Tera-Setup.zip` and unzip it anywhere (right click > *Extract All*). Keep the folder; the setup uses it
+   again when you update.
+2. Open `Tera-Setup.exe`. If Windows SmartScreen warns about an unknown publisher, click *More info* > *Run anyway*.
+3. In the window, choose:
+   - **Base game**: the Scarlet base game file;
+   - **Update 4.0.0**: the update file;
+   - **prod.keys**: your keys file (read in place, never copied or shown);
+   - **Firmware folder**: the `Contents/registered` folder;
+   - **Game language**;
+   - **Install folder**: a new, empty folder, for example `C:\Games\Tera Recomp`.
+4. Click **Start** and wait. The window shows each step: checking the files, extracting the system fonts, extracting
+   and merging the game with the update, translating the game code to C and compiling it. About 20 minutes on a
+   recent PC. If it stops, it resumes from the last finished step when you click Start again.
+5. When it is done, start the game with the **Pokemon Scarlet** shortcut on your desktop (or `totk.exe` in the install
+   folder).
+
+The first time you meet a new area or effect the game translates its shaders, which can stutter briefly; from the
+second run on they are compiled at start.
+
 ## Status
 
-Phase 0: project set up from [TotK Recomp](https://github.com/valentderah/totk-pc-recomp) (MIT), whose generic Switch
-parts (ARM64 lifter, Horizon kernel model, NVN on Vulkan, shader translation) are the starting point. See
-[docs/plan.md](docs/plan.md) for the roadmap and what is TotK-specific and has to be redone.
+Early alpha. The game boots, runs the intro and character creation with the opening cutscene and its audio, and can be
+walked around the starting area at 30 fps with correct lighting. Expect crashes and graphics bugs further in. Multiplayer (the
+self-hosted server) is not there yet: see [docs/plan.md](docs/plan.md) and the boot log in
+[docs/phase3-boot.md](docs/phase3-boot.md).
+
+## Report a problem
+
+[Open an issue](https://github.com/tukidev-lgtm/Tera-recomp/issues/new) with:
+
+- what you did and what happened (a screenshot helps a lot);
+- your graphics card and Windows version;
+- the log: `logs/totk.log` in the install folder for a game problem, or the setup log the window names (*Show log*)
+  for a setup problem.
+
+Never attach game files or keys.
 
 ## Targets
 
@@ -19,6 +71,11 @@ parts (ARM64 lifter, Horizon kernel model, NVN on Vulkan, shader translation) ar
 |---|---|---|
 | Pokémon Scarlet | `0100A3D008C5C000` | `0100A3D008C5C800` |
 | Pokémon Violet  | `01008F6008C5E000` | `01008F6008C5E800` |
+
+## Building from source
+
+Developers: [docs/building.md](docs/building.md) (toolchain), `tools/dev_run.ps1` (build and run from the
+repository), `tools/make_release.py` (the setup package).
 
 ## Credits and license
 
