@@ -1,6 +1,6 @@
 """Assemble the release folder of docs/installer.md ("Release layout") from pinned downloads.
 
-    .venv-py314\\Scripts\\python tools\\make_release.py --out build/release/Tera-Setup [--zip build/release/Tera-Setup.zip]
+    .venv-py314\\Scripts\\python tools\\make_release.py --out build/release/Tera-Setup [--zip build/release/Tera-Setup-Windows-x64.zip]
     .venv-py314\\Scripts\\python tools\\make_release.py --out build/release/Tera-Setup --prove
 
 Needs Python 3.14 (tarfile reads the MSYS2 .zst packages), uv on PATH and network access on the first run. Downloads are
@@ -15,6 +15,7 @@ cached in toolchain/release-dl/ and checked against the sha256 in PINS; a mismat
                libraries of SDL3, Opus, libvpx, Vulkan and VMA)
     bin/       totk_xlate.exe (+ .id), hactool.exe, SDL3.dll (upstream), libopus-0.dll, ninja.exe
     recomp/, tools/, data/, installer/, licenses/, THIRD_PARTY_NOTICES.md, totk.ini.example
+    recomplauncher.json  RecompLauncher's description of the setup, the game and its settings (repository root)
     data/pgo-<v>.profdata  build/pgo's execution profile of an update (tools/pgo.py) and its .json record: the
                install compiles that update's code and the runtime libraries with it
     VERSION    the repository's VERSION plus the commit, 0.1.0+973c626; the installer's release string
@@ -444,6 +445,7 @@ def build_sources(out, pgo):
     copy_tree(ROOT / 'installer', out / 'installer', lambda r: '__pycache__' in r or r.startswith('launcher/'))
     shutil.copy2(ROOT / 'totk.ini.example', out / 'totk.ini.example')
     shutil.copy2(ROOT / 'THIRD_PARTY_NOTICES.md', out / 'THIRD_PARTY_NOTICES.md')
+    shutil.copy2(ROOT / 'recomplauncher.json', out / 'recomplauncher.json')   # RecompLauncher reads it at the zip's top
     (out / 'VERSION').write_text(version() + '\n', encoding='utf-8')
 
 

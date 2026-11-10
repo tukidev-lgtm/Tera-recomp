@@ -8,17 +8,22 @@ players at once, each on their own save and at their own pace.
 > of that console. The game is built from your files on your machine. Do not share the result.
 
 [![Follow @Tukidev on X for updates](https://img.shields.io/badge/updates-%40Tukidev-000000?style=for-the-badge&logo=x)](https://x.com/Tukidev)
-[![Download Tera-Setup.zip](https://img.shields.io/github/v/release/tukidev-lgtm/Tera-recomp?style=for-the-badge&label=download)](https://github.com/tukidev-lgtm/Tera-recomp/releases/latest/download/Tera-Setup.zip)
+[![Download Tera-Setup-Windows-x64.zip](https://img.shields.io/github/v/release/tukidev-lgtm/Tera-recomp?style=for-the-badge&label=download)](https://github.com/tukidev-lgtm/Tera-recomp/releases/latest/download/Tera-Setup-Windows-x64.zip)
 [![Verified developer on RecompStore](https://recompstore.com/assets/press/verified-dark.svg)](https://recompstore.com/dev/tukidev-lgtm)
+<a href="https://recomplauncher.com"><picture><source media="(prefers-color-scheme: dark)" srcset="https://recomplauncher.com/assets/press/launcher/badge-light.svg"><img alt="Get it on RecompLauncher" src="https://recomplauncher.com/assets/press/launcher/badge-dark.svg" height="48"></picture></a>
 
-By [Tukidev](https://x.com/Tukidev): follow for progress updates · [Download](https://github.com/tukidev-lgtm/Tera-recomp/releases/latest/download/Tera-Setup.zip) · [Report a bug](https://github.com/tukidev-lgtm/Tera-recomp/issues/new)
+By [Tukidev](https://x.com/Tukidev): follow for progress updates · [Download](https://github.com/tukidev-lgtm/Tera-recomp/releases/latest/download/Tera-Setup-Windows-x64.zip) · [Report a bug](https://github.com/tukidev-lgtm/Tera-recomp/issues/new)
 
 ## Download and install (Windows)
 
-**[Download Tera-Setup.zip](https://github.com/tukidev-lgtm/Tera-recomp/releases/latest/download/Tera-Setup.zip)**
+**[Download Tera-Setup-Windows-x64.zip](https://github.com/tukidev-lgtm/Tera-recomp/releases/latest/download/Tera-Setup-Windows-x64.zip)**
 (about 145 MB). All releases: [Releases](https://github.com/tukidev-lgtm/Tera-recomp/releases).
 
 The download holds the setup and its tools only. The setup builds the game on your PC from your own files, once.
+
+With [RecompLauncher](https://recomplauncher.com): add Tera Recomp, point it to one folder holding your base game,
+the 4.0.0 update, `prod.keys` and the firmware folder, and it builds and starts the game for you
+(`recomplauncher.json` describes the setup, the settings and the saves). Or set it up yourself:
 
 ### What you need
 
@@ -34,7 +39,7 @@ The download holds the setup and its tools only. The setup builds the game on yo
 
 ### Steps
 
-1. Download `Tera-Setup.zip` and unzip it anywhere (right click > *Extract All*). Keep the folder; the setup uses it
+1. Download `Tera-Setup-Windows-x64.zip` and unzip it anywhere (right click > *Extract All*). Keep the folder; the setup uses it
    again when you update.
 2. Open `Tera-Setup.exe`. If Windows SmartScreen warns about an unknown publisher, click *More info* > *Run anyway*.
 3. In the window, choose:

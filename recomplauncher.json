@@ -1,0 +1,98 @@
+{
+  "$schema": "https://recomplauncher.com/schema/recomplauncher.json",
+  "format": 1,
+  "name": "Tera Recomp",
+  "game": {
+    "kind": "folder",
+    "label": "A folder with your Pokémon Scarlet base game (NSP/XCI/NSZ/XCZ), the 4.0.0 update, your prod.keys and your Switch firmware folder"
+  },
+  "prepare": {
+    "label": "Building Pokémon Scarlet from your files",
+    "program": ["python/python.exe"],
+    "args": ["-m", "installer", "--game", "{game}", "--dest", "{install}/game", "--lang", "auto", "--progress-lines",
+             "--no-shortcut"],
+    "timeout": 3600
+  },
+  "start": {
+    "program": ["game/totk.exe"]
+  },
+  "config": [
+    {
+      "format": "ini",
+      "file": [{"path": "{install}/game/totk.ini"}]
+    }
+  ],
+  "settings": [
+    {
+      "id": "fps60",
+      "label": "Frame rate",
+      "help": "60 fps is the game's own Switch 2 mode; 30 fps plays as on the original Switch.",
+      "defaults": {"fps60": "1"},
+      "choices": [
+        {"label": "60 fps", "set": {"fps60": "1"}},
+        {"label": "30 fps (as on Switch)", "set": {"fps60": "0"}}
+      ]
+    },
+    {
+      "id": "fullscreen",
+      "label": "Window mode",
+      "defaults": {"fullscreen": "0"},
+      "choices": [
+        {"label": "Windowed", "set": {"fullscreen": "0"}},
+        {"label": "Fullscreen", "set": {"fullscreen": "1"}}
+      ]
+    },
+    {
+      "id": "shadow_scale",
+      "label": "Shadow resolution",
+      "help": "The sun's shadow map, 1024x1024 in the game. Higher is sharper and costs GPU time.",
+      "defaults": {"shadow_scale": "2"},
+      "choices": [
+        {"label": "As on Switch (1024)", "set": {"shadow_scale": "1"}},
+        {"label": "2048 (default)", "set": {"shadow_scale": "2"}},
+        {"label": "3072", "set": {"shadow_scale": "3"}},
+        {"label": "4096", "set": {"shadow_scale": "4"}}
+      ]
+    },
+    {
+      "id": "lang",
+      "label": "Game language",
+      "defaults": {"lang": ""},
+      "choices": [
+        {"label": "Same as Windows", "set": {"lang": ""}},
+        {"label": "English", "set": {"lang": "en-US"}},
+        {"label": "Español", "set": {"lang": "es"}},
+        {"label": "Français", "set": {"lang": "fr"}},
+        {"label": "Deutsch", "set": {"lang": "de"}},
+        {"label": "Italiano", "set": {"lang": "it"}},
+        {"label": "日本語", "set": {"lang": "ja"}},
+        {"label": "한국어", "set": {"lang": "ko"}},
+        {"label": "简体中文", "set": {"lang": "zh-Hans"}},
+        {"label": "繁體中文", "set": {"lang": "zh-Hant"}}
+      ]
+    },
+    {
+      "id": "perf_overlay",
+      "label": "FPS counter",
+      "defaults": {"perf_overlay": "off"},
+      "choices": [
+        {"label": "Off", "set": {"perf_overlay": "off"}},
+        {"label": "On", "set": {"perf_overlay": "fps"}}
+      ]
+    }
+  ],
+  "folders": {
+    "saves": [{"path": "{install}/game/profile"}],
+    "logs": [{"path": "{install}/game/logs"}],
+    "game": [{"path": "{install}/game"}]
+  },
+  "saves": ["{install}/game/profile"],
+  "looks": {
+    "graphics": "vulkan"
+  },
+  "actions": [
+    {"id": "open_saves", "label": "Open saves folder", "open": "saves"},
+    {"id": "open_logs", "label": "Open logs folder", "help": "Attach logs/totk.log when you report a problem.", "open": "logs"},
+    {"id": "clear_shaders", "label": "Clear shader cache", "help": "The game translates its shaders again as it meets them.", "clear": "game/shader-cache"}
+  ]
+}
