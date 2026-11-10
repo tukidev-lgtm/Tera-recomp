@@ -7,6 +7,8 @@ players at once, each on their own save and at their own pace.
 > **No game files are included.** You need your own legally obtained copy, dumped from your own console, and the keys
 > of that console. The game is built from your files on your machine. Do not share the result.
 
+By [Tukidev](https://x.com/Tukidev) · [Download](https://github.com/tukidev-lgtm/Tera-recomp/releases/latest/download/Tera-Setup.zip) · [Report a bug](https://github.com/tukidev-lgtm/Tera-recomp/issues/new)
+
 ## Download and install (Windows)
 
 **[Download Tera-Setup.zip](https://github.com/tukidev-lgtm/Tera-recomp/releases/latest/download/Tera-Setup.zip)**
@@ -64,6 +66,8 @@ self-hosted server) is not there yet: see [docs/plan.md](docs/plan.md) and the b
   for a setup problem.
 
 Never attach game files or keys.
+
+News and progress: [@Tukidev on X](https://x.com/Tukidev).
 
 ## Targets
 
