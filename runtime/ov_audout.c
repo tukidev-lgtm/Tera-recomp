@@ -1,8 +1,9 @@
 // nn::audio AudioOut (audout:u): a PCM stream the game feeds directly, next to the audio renderer. Scarlet opens the
 // default output from the main module and from subsdk0. Every public AudioOut call is overridden, so the host owns
 // both objects: AudioOut word 0 holds the host stream, and AudioOutBuffer words 0-2 hold data, capacity and size
-// (SetAudioOutBufferInfo). Appended buffers go straight into an SDL3 stream on the default playback device; a buffer
-// is released once the device has played past its end. Without a device (TOTK_AUDIO=none, or no output), playback is
+// (SetAudioOutBufferInfo). As on the hardware, an appended buffer is read when it plays, not when it is appended
+// (Bink, the movie player, may fill a buffer after appending it): the SDL3 device callback copies from the queued
+// buffers' memory and releases each one it finishes. Without a device (TOTK_AUDIO=none, or no output), playback is
 // timed by the clock so the game sees buffers come back at the real rate.
 #include <stdint.h>
 #include <stdlib.h>
@@ -25,9 +26,11 @@ typedef struct {
     PlatMutex lock;
     SDL_AudioStream *stream;
     int channels, rate, state;
-    uint64_t put, played_base, started_ns;   // bytes appended; clock playback: bytes played before the last start
-    struct { OutBuffer *buf; uint64_t end; } q[MAX_QUEUED];
-    int head, count;
+    uint64_t played, clock_ns;                // bytes played; clock playback: time accounted up to
+    OutBuffer *queued[MAX_QUEUED], *released[MAX_QUEUED];
+    uint64_t head_used;                       // bytes of queued[0] already played
+    int nqueued, nreleased;
+    uint64_t appends;
 } Out;
 
 static Out *out_of(Cpu *c, int i) {
@@ -38,17 +41,52 @@ static Out *out_of(Cpu *c, int i) {
 
 static int frame_bytes(const Out *o) { return 2 * o->channels; }
 
-// bytes the device has played; lock held
-static uint64_t played(Out *o) {
-    if (o->stream) {
-        int queued = SDL_GetAudioStreamQueued(o->stream);
-        uint64_t p = o->put - (uint64_t)(queued > 0 ? queued : 0);
-        return p;
+// Plays up to n bytes from the queued buffers: copies them to dst (NULL: clock playback, nothing copied), releases
+// each finished buffer. Returns the bytes taken; lock held.
+static uint64_t consume(Out *o, uint8_t *dst, uint64_t n) {
+    uint64_t done = 0;
+    while (done < n && o->nqueued) {
+        OutBuffer *b = o->queued[0];
+        uint64_t left = b->size > o->head_used ? b->size - o->head_used : 0, k = n - done < left ? n - done : left;
+        if (dst && k) memcpy(dst + done, (const uint8_t *)(uintptr_t)b->data + o->head_used, k);
+        done += k;
+        o->head_used += k;
+        if (o->head_used >= b->size) {
+            memmove(o->queued, o->queued + 1, (size_t)--o->nqueued * sizeof *o->queued);
+            o->head_used = 0;
+            if (o->nreleased < MAX_QUEUED) o->released[o->nreleased++] = b;
+        }
     }
-    uint64_t p = o->played_base;
-    if (o->state == STATE_STARTED)
-        p += (plat_now_ns() - o->started_ns) * (uint64_t)o->rate / 1000000000u * (uint64_t)frame_bytes(o);
-    return p < o->put ? p : o->put;
+    o->played += done;
+    return done;
+}
+
+// clock playback: plays what the elapsed time allows; lock held
+static void clock_advance(Out *o) {
+    if (o->stream || o->state != STATE_STARTED) return;
+    uint64_t now = plat_now_ns(), fb = (uint64_t)frame_bytes(o);
+    uint64_t frames = (now - o->clock_ns) * (uint64_t)o->rate / 1000000000u;
+    if (!frames) return;
+    o->clock_ns += frames * 1000000000u / (uint64_t)o->rate;
+    consume(o, NULL, frames * fb);
+}
+
+// SDL device callback: the device wants `additional` more bytes
+static void SDLCALL device_pull(void *ud, SDL_AudioStream *stream, int additional, int total) {
+    (void)total;
+    Out *o = ud;
+    uint8_t tmp[8192];
+    while (additional > 0) {
+        int want = additional < (int)sizeof tmp ? additional : (int)sizeof tmp;
+        want -= want % frame_bytes(o);
+        if (want <= 0) break;
+        plat_mutex_lock(&o->lock);
+        uint64_t got = o->state == STATE_STARTED ? consume(o, tmp, (uint64_t)want) : 0;
+        plat_mutex_unlock(&o->lock);
+        if (!got) break;   // underrun: the device plays silence
+        SDL_PutAudioStreamData(stream, tmp, (int)got);
+        additional -= (int)got;
+    }
 }
 
 // void InitializeAudioOutParameter(AudioOutParameter *): int sample rate, u16 channel count (0: the defaults)
@@ -75,7 +113,7 @@ static void ov_open(Cpu *c) {
     if (!((mode && !strcmp(mode, "none")) || cfg_get("TOTK_AUDIO_OFF"))) {
         if (SDL_InitSubSystem(SDL_INIT_AUDIO)) {
             SDL_AudioSpec spec = {SDL_AUDIO_S16, o->channels, o->rate};
-            o->stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
+            o->stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, device_pull, o);
             if (!o->stream) SDL_QuitSubSystem(SDL_INIT_AUDIO);
         }
         if (!o->stream) rt_log("audout: no output device (%s): timed by the clock", SDL_GetError());
@@ -100,7 +138,7 @@ static void ov_start(Cpu *c) {
     Out *o = out_of(c, 0);
     plat_mutex_lock(&o->lock);
     if (o->state != STATE_STARTED) {
-        o->started_ns = plat_now_ns();
+        o->clock_ns = plat_now_ns();
         o->state = STATE_STARTED;
         if (o->stream) SDL_ResumeAudioStreamDevice(o->stream);
     }
@@ -111,7 +149,7 @@ static void ov_stop(Cpu *c) {
     Out *o = out_of(c, 0);
     plat_mutex_lock(&o->lock);
     if (o->state == STATE_STARTED) {
-        o->played_base = played(o);
+        clock_advance(o);
         o->state = STATE_STOPPED;
         if (o->stream) SDL_PauseAudioStreamDevice(o->stream);
     }
@@ -127,27 +165,26 @@ static void ov_format(Cpu *c) { (void)out_of(c, 0); ret_x(c, FMT_PCM16); }
 static void ov_played_samples(Cpu *c) {
     Out *o = out_of(c, 0);
     plat_mutex_lock(&o->lock);
-    uint64_t n = played(o) / (uint64_t)frame_bytes(o);
+    clock_advance(o);
+    uint64_t n = o->played / (uint64_t)frame_bytes(o);
     plat_mutex_unlock(&o->lock);
     ret_x(c, n);
 }
 
-// bool AppendAudioOutBuffer(AudioOut *, AudioOutBuffer *)
+// bool AppendAudioOutBuffer(AudioOut *, AudioOutBuffer *): queued; its memory is read when it plays
 static void ov_append(Cpu *c) {
     Out *o = out_of(c, 0);
     OutBuffer *b = arg_p(c, 1);
     if (!b) rt_fatal("nn::audio::AppendAudioOutBuffer: null buffer");
     plat_mutex_lock(&o->lock);
-    int ok = o->count < MAX_QUEUED;
-    if (ok) {
-        if (o->stream && b->size && !SDL_PutAudioStreamData(o->stream, (const void *)(uintptr_t)b->data, (int)b->size))
-            rt_log("audout: queueing failed (%s)", SDL_GetError());
-        o->put += b->size;
-        int i = (o->head + o->count++) % MAX_QUEUED;
-        o->q[i].buf = b;
-        o->q[i].end = o->put;
-    }
+    clock_advance(o);
+    int ok = o->nqueued + o->nreleased < MAX_QUEUED;
+    if (ok) o->queued[o->nqueued++] = b;
+    uint64_t n = ++o->appends;
     plat_mutex_unlock(&o->lock);
+    if (n == 1 || n == 100 || n % 3000 == 0)   // a sign of life while the stream runs
+        rt_log("audout: %llu buffers appended (this one %llu bytes), %llu bytes played", (unsigned long long)n,
+               (unsigned long long)b->size, (unsigned long long)o->played);
     ret_x(c, (uint64_t)ok);
 }
 
@@ -156,10 +193,10 @@ static void ov_released(Cpu *c) {
     Out *o = out_of(c, 0);
     OutBuffer *b = NULL;
     plat_mutex_lock(&o->lock);
-    if (o->count && o->q[o->head].end <= played(o)) {
-        b = o->q[o->head].buf;
-        o->head = (o->head + 1) % MAX_QUEUED;
-        o->count--;
+    clock_advance(o);
+    if (o->nreleased) {
+        b = o->released[0];
+        memmove(o->released, o->released + 1, (size_t)--o->nreleased * sizeof *o->released);
     }
     plat_mutex_unlock(&o->lock);
     ret_x(c, (uint64_t)(uintptr_t)b);
