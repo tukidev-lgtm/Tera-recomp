@@ -10,7 +10,11 @@ Scarlet 4.0.0 on the TotK runtime, from the first run on. Each step names what s
 | NVN `TexturePoolGetSize`, `BufferBuilderGetSize`, ... | 101 NVN procs TotK never called | `nvn_sv.c` (getters, debug controls) |
 | `set` service | `nn::settings` language code helpers | overrides in `ov_system.c` |
 | null `+0xe0` locked at main+0x14fe800 | `GetEntryType("data:/audio/wwise/bin/Switch/")`: a directory path with its trailing `/` became `...Switch//` and was not found, so the Wwise setup never built its root node | `romfs_entry_type` drops trailing `/` |
-| `hid` service | `nn::hid::SetNpadHandheldActivationMode` and other hid calls TotK never made | open |
+| `hid` service | `nn::hid::SetNpadHandheldActivationMode` and other hid calls TotK never made | npad, six-axis and vibration overrides in `ov_input.c` |
+| shared fonts render no glyphs | the BFTTF body is XORed with the font key | `font_data` decodes the body for Scarlet |
+| `bcat` service | distribution content polled at boot | `ov_bcat.c`: synced, nothing delivered |
+| no function at main+0x26ca4 | return point after `bl _setjmp`: lifted code had no setjmp/longjmp | `gen.py` lifts setjmp calls through `rt_setjmp`, `guest_jmp.c` restores registers on `longjmp` |
+| `csrng` service | `nn::crypto::GenerateCryptographicallyRandomBytes` | override with the host system RNG (`ov_system.c`) |
 
 ## Solved: the null object at main+0x14fe800
 

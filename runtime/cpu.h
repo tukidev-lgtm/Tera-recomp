@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "platform/platform.h"   // PlatJmp, plat_jmp_save: lifted setjmp sites (runtime/guest_jmp.c)
+
 typedef struct __attribute__((aligned(16))) Cpu {
     uint64_t x[32];          // x0-x30 (x[31] unused; sp is separate)
     uint64_t sp;             // 256
@@ -34,6 +36,8 @@ typedef void (*GuestFn)(Cpu *);
 // ---- runtime services (runtime/*.c)
 void rt_dispatch(Cpu *c);                 // call function at c->pc
 void rt_trace_point(Cpu *c, uint64_t pc);  // debugging: a `trace` line of the patch file (runtime/tracepoint.c)
+// Guest setjmp (runtime/guest_jmp.c): lifted as `if (plat_jmp_save(rt_setjmp(c))) ...` in the caller's own frame.
+PlatJmp *rt_setjmp(Cpu *c);
 void rt_spin_gate(Cpu *c, uint64_t head);  // a pass of a spin wait loop (kernel.c, recomp/patches.py `spin`)
 void rt_svc(Cpu *c, uint32_t imm, uint64_t pc);
 void rt_brk(Cpu *c, uint32_t imm, uint64_t pc) __attribute__((noreturn));

@@ -50,6 +50,7 @@ from check_content import GENERATED_MARKER  # noqa: E402
 from layout import layout, write as write_layout  # noqa: E402
 from lifter import hx  # noqa: E402
 from module import Module  # noqa: E402
+from nso import R_AARCH64_JUMP_SLOT  # noqa: E402
 
 TERMINATORS = ('b', 'br', 'ret', 'trap')
 MUSTTAIL = '__attribute__((musttail)) return'
@@ -217,6 +218,7 @@ class Emitter:
         self.patched = patched or {}   # {address: [(set index, [replacement words])]} (recomp/patches.py)
         self.spins = spins or {}       # {spin wait back-edge: its head} (recomp/patches.py `spin`)
         self.traces = traces or set()  # trace point addresses (recomp/patches.py `trace`)
+        self.setjmp_targets = setjmp_targets(mod)   # `bl` here: lifted as a setjmp (runtime/guest_jmp.c)
         self.reg_locals = reg_locals   # recomp/regs.py: registers per function in C locals
         self.kept = regs.CALLEE_SAVED if callee_saved else frozenset()   # not reloaded after a call
         self.uses_patches = False
@@ -407,6 +409,12 @@ class Emitter:
                 out.append('    ' + fp.decl())
 
         def call(t, a):
+            if t in self.setjmp_targets:
+                # setjmp: the saved point is this C frame (runtime/guest_jmp.c). A longjmp lands in the first branch
+                # with the guest registers restored in the Cpu and x0 its value; the locals are loaded again.
+                self.stats['setjmp_sites'] = self.stats.get('setjmp_sites', 0) + 1
+                return (f'c->x[30] = {hx(a + 4)}; {spill}'
+                        f'if (plat_jmp_save(rt_setjmp(c))) {{ {reload} }} else {{ c->x[0] = 0; }}')
             if t in starts:
                 refs.add(t)
                 return f'c->x[30] = {hx(a + 4)}; {spill}{fname(t)}(c);{reload_call}'
@@ -508,6 +516,11 @@ class Emitter:
         else:
             out += [line for _, line in body]
         out.append('}')
+        if any('plat_jmp_save(' in line for line in out):
+            # LLVM cannot tail call out of a function that calls a returns_twice function (setjmp), so a
+            # musttail there fails the build: plain returns instead (these few functions grow the host stack).
+            out = [line.replace(MUSTTAIL, 'return') for line in out]
+            self.stats['setjmp_functions'] += 1
         self.stats['functions'] += 1
         self.stats['instructions'] += len(insns)
         return out, refs
@@ -594,6 +607,33 @@ def _emitter(name):
                                            spins=_W['patches'].spins_for(name, base),
                                            traces=_W['patches'].traces_for(name, base), **_W['opts'])
     return e
+
+
+def setjmp_targets(mod):
+    """Addresses a `bl` reaches setjmp or _setjmp at in mod: its own definitions, and the PLT stubs (adrp x16;
+    ldr x17, [x16, #off]; ...) whose GOT slot the JUMP_SLOT relocation of either name fills."""
+    names = {'setjmp', '_setjmp'}
+    n = mod.nso
+    out = {mod.base + v for name, _, shndx, v, _ in n.syms if name in names and shndx}
+    slots = {mod.base + off for off, typ, sym, _ in n.relocs
+             if typ == R_AARCH64_JUMP_SLOT and sym < len(n.syms) and n.syms[sym][0] in names}
+    if not slots:
+        return out
+    t0, tn = n.text
+    words = np.frombuffer(bytes(n.image[t0:t0 + tn]), dtype='<u4')
+    pcs = mod.base + t0 + 4 * np.arange(len(words), dtype=np.int64)
+    adrp16 = np.nonzero((words[:-1] & 0x9f00001f) == 0x90000010)[0]   # adrp x16, page
+    for i in adrp16:
+        w, nxt = int(words[i]), int(words[i + 1])
+        if nxt & 0xffc003ff != 0xf9400211:   # ldr x17, [x16, #imm12*8]
+            continue
+        imm = (((w >> 5) & 0x7ffff) << 2) | ((w >> 29) & 3)
+        if imm >= 1 << 20:
+            imm -= 1 << 21
+        page = (int(pcs[i]) & ~0xfff) + (imm << 12)
+        if page + ((nxt >> 10) & 0xfff) * 8 in slots:
+            out.add(int(pcs[i]))
+    return out
 
 
 def merge_ranges(ranges):
