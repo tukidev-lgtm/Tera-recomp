@@ -909,6 +909,14 @@ static void ov_font_size(Cpu *c) {
     ret_x(c, fonts.size[t]);
 }
 
+// ==== crypto: the csrng service is the host's system random generator
+// void nn::crypto::GenerateCryptographicallyRandomBytes(void *, size_t)
+static void ov_csrng_bytes(Cpu *c) {
+    void *out = arg_p(c, 0);
+    size_t n = (size_t)arg_x(c, 1);
+    if (n) need(out && plat_random(out, n), "crypto: random bytes");
+}
+
 // ==== registration
 HOST_OVERRIDE("_ZN2nn2oe10InitializeEv", ov_oe_initialize);
 HOST_OVERRIDE("_ZN2nn2oe18GetDesiredLanguageEv", ov_desired_language);
@@ -1000,3 +1008,4 @@ HOST_OVERRIDE("_ZN2nn2pl22GetSharedFontLoadStateENS0_14SharedFontTypeE", ov_font
 HOST_OVERRIDE("_ZN2nn2pl21RequestSharedFontLoadENS0_14SharedFontTypeE", ov_font_request);
 HOST_OVERRIDE("_ZN2nn2pl20GetSharedFontAddressENS0_14SharedFontTypeE", ov_font_address);
 HOST_OVERRIDE("_ZN2nn2pl17GetSharedFontSizeENS0_14SharedFontTypeE", ov_font_size);
+HOST_OVERRIDE("_ZN2nn6crypto36GenerateCryptographicallyRandomBytesEPvm", ov_csrng_bytes);
