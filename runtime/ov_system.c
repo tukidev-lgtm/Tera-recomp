@@ -248,6 +248,14 @@ static void ov_inactivity_extended(Cpu *c) { (void)c; }
 // void FinishStartupLogo(): no system logo is drawn on the host
 static void ov_finish_logo(Cpu *c) { (void)c; rt_log("oe: the game finished its startup logo"); }
 
+// void EnterExitRequestHandlingSection() / LeaveExitRequestHandlingSection(): the game brackets its saves so a HOME
+// exit request waits for them. The host sends no exit requests (closing the window ends the process, and the save
+// storage commits atomically, fs_host.c), so the section is only counted. In the lifted SDK both open the applet
+// proxy the host does not have.
+static volatile int32_t exit_sections;
+static void ov_exit_section_enter(Cpu *c) { (void)c; __atomic_add_fetch(&exit_sections, 1, __ATOMIC_RELAXED); }
+static void ov_exit_section_leave(Cpu *c) { (void)c; __atomic_sub_fetch(&exit_sections, 1, __ATOMIC_RELAXED); }
+
 // bool TryPopLaunchParameter(size_t *size, void *buffer, size_t capacity): launched directly, no parameter
 static void ov_launch_parameter(Cpu *c) {
     uint64_t *size = arg_p(c, 0);
@@ -943,6 +951,8 @@ HOST_OVERRIDE("_ZN2nn2oe25GetProgramTotalActiveTimeEv", ov_active_time);
 HOST_OVERRIDE("_ZN2nn2oe38SetUserInactivityDetectionTimeExtendedEb", ov_inactivity_extended);
 HOST_OVERRIDE("_ZN2nn2oe44SetUserInactivityDetectionTimeExtendedUnsafeEb", ov_inactivity_extended);
 HOST_OVERRIDE("_ZN2nn2oe17FinishStartupLogoEv", ov_finish_logo);
+HOST_OVERRIDE("_ZN2nn2oe31EnterExitRequestHandlingSectionEv", ov_exit_section_enter);
+HOST_OVERRIDE("_ZN2nn2oe31LeaveExitRequestHandlingSectionEv", ov_exit_section_leave);
 HOST_OVERRIDE("_ZN2nn2oe25TryPopNotificationMessageEPj", ov_try_pop);
 HOST_OVERRIDE("_ZN2nn2oe22PopNotificationMessageEv", ov_pop);
 HOST_OVERRIDE("_ZN2nn5prepo10PlayReport4SaveEv", ov_report_save);
