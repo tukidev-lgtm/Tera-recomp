@@ -329,10 +329,21 @@ static int shadow_scale(void) {
 
 static int shadow_scale_of(const nvn_texdesc *d, const TexVkFormat *f, uint32_t samples, int mirrored) {
     int scale = shadow_scale();
-    if (scale == 1 || mirrored || samples > 1 || d->format != NVN_FORMAT_DEPTH16 || !f->depth) return 1;
+    if (scale == 1 || mirrored || samples > 1) return 1;
+    uint32_t most = vk_ctx()->props.limits.maxImageDimension2D;
+    // Scarlet renders its sun shadows into a 1024x1024 DEPTH32F 2D array of 2 layers together with an R8UI array of the
+    // same size (an object id per texel, which its shadow mask pass compares with texelFetch at textureSize-based
+    // coordinates); both are attachments of the same passes, so both take the scale. The mask pass reads the depth
+    // with normalised coordinates and filters it in the shader, in texels of the map's own textureSize.
+    if (RT_SV) {
+        if ((d->format != NVN_FORMAT_DEPTH32F || !f->depth) && d->format != NVN_FORMAT_R8UI) return 1;
+        if (d->target != NVN_TEXTURE_TARGET_2D_ARRAY || d->width != d->height || d->width < 512 || d->depth != 2)
+            return 1;
+        return d->width * (uint32_t)scale <= most ? scale : 1;
+    }
+    if (d->format != NVN_FORMAT_DEPTH16 || !f->depth) return 1;
     if (d->target != NVN_TEXTURE_TARGET_2D_ARRAY || d->width != d->height || d->width < 256 || d->depth < 2 || d->depth > 4)
         return 1;
-    uint32_t most = vk_ctx()->props.limits.maxImageDimension2D;
     return d->width * (uint32_t)scale <= most ? scale : 1;
 }
 

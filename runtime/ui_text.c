@@ -127,7 +127,7 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_HDR_HUE_DESC] = "Bright colours such as fire and sparks turn towards white as in the game's own SDR picture, "
                              "matching the light they cast; 0 keeps them fully saturated.",
     [UI_MENU_SHADOW_SCALE] = "Shadow resolution",
-    [UI_MENU_SHADOW_SCALE_DESC] = "Draws the sun's shadow maps this many times larger on each side than the game's 960x960: "
+    [UI_MENU_SHADOW_SCALE_DESC] = "Draws the sun's shadow map this many times larger on each side than the game's 1024x1024: "
                                   "sharper shadow edges and leaf shadows. Takes effect at the next start.",
     [UI_MENU_PCSS] = "Soft shadows",
     [UI_MENU_PCSS_DESC] = "Sun shadows sharp where an object meets the ground and softer the further the shadow falls "

@@ -81,6 +81,24 @@ def _sext(v, n):
     return np.where(v & (1 << (n - 1)), v - (1 << n), v)
 
 
+def _written_regs(w):
+    """The general registers each instruction word may write, as two arrays of register numbers (-1: none): Rd of
+    the integer data-processing classes (31 is xzr or sp, never an ADRP's register), Rt and Rt2 of integer loads.
+    Approximate on the safe side for the ADRP+ADD pairing: a word counted as a write only ends a search."""
+    w = w.astype(np.int64)
+    rd = (w & 31).astype(np.int64)
+    rt2 = ((w >> 10) & 31).astype(np.int64)
+    none = np.full(len(w), -1, dtype=np.int64)
+    dp_imm = ((w >> 26) & 7) == 0b100                      # op0 100x: data processing, immediate
+    dp_reg = ((w >> 25) & 7) == 0b101                      # op0 x101: data processing, register
+    ldst = (((w >> 25) & 5) == 0b100) & (((w >> 26) & 1) == 0)   # op0 x1x0, integer registers
+    load = ldst & ((((w >> 22) & 1) == 1) | (((w >> 23) & 1) == 1))   # L bit, or a signed load (opc 1x)
+    pair = load & (((w >> 27) & 7) == 0b101)               # LDP, LDPSW, LDNP: Rt2 too
+    rd1 = np.where(dp_imm | dp_reg | load, rd, none)
+    rd2 = np.where(pair, rt2, none)
+    return rd1, rd2
+
+
 def discover(mod):
     """Function starts of mod as a sorted int64 array of word indices into mod.words, plus discovery statistics."""
     w = mod.words
@@ -133,9 +151,18 @@ def discover(mod):
     add = idx((w & 0xFFC00000) == 0x91000000)
     rn = ((w[add] >> 5) & 31).astype(np.int64)
     found = np.full(len(add), -1, dtype=np.int64)
+    # The ADRP must still be the register's value at the ADD: an instruction in between that writes the register
+    # ends the search. Scarlet: `adrp x9, P; add x8, x8, ..; ..; add x9, sp, #0x10; add x0, x9, #0x150` made
+    # P + 0x150 a function start in the middle of an unrelated function (main+0x2a20150), whose 46 fragments then hid
+    # a switch's case blocks from its jump table (rt_dispatch failed at main+0x2a1fc24 when a battle started).
+    rd1, rd2 = _written_regs(w)
+    blocked = np.zeros(len(add), dtype=bool)
     for k in range(1, 9):
         p = add - k
-        cand = (found < 0) & (p >= 0)
+        if k > 1:   # the instruction just after the candidate ADRP
+            q = np.maximum(add - (k - 1), 0)
+            blocked |= (rd1[q] == rn) | (rd2[q] == rn)
+        cand = (found < 0) & (p >= 0) & ~blocked
         pc = np.where(cand, p, 0)
         cand &= is_adrp[pc] & ((w[pc] & 31).astype(np.int64) == rn)
         found[cand] = p[cand]
