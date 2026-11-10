@@ -337,6 +337,12 @@ static int shadow_scale_of(const nvn_texdesc *d, const TexVkFormat *f, uint32_t 
 }
 
 // defer_init: the caller records the image's first transition (init_image or alias_copy).
+// HDR light cubes: the formats a 2D array may be in to be made cube compatible on AMD (create_tex)
+static int cube_float_format(VkFormat f) {
+    return f == VK_FORMAT_BC6H_UFLOAT_BLOCK || f == VK_FORMAT_BC6H_SFLOAT_BLOCK || f == VK_FORMAT_R16G16B16A16_SFLOAT ||
+           f == VK_FORMAT_R32G32B32A32_SFLOAT || f == VK_FORMAT_B10G11R11_UFLOAT_PACK32 || f == VK_FORMAT_E5B9G9R9_UFLOAT_PACK32;
+}
+
 static Tex *create_tex(const tex_t *t, const TexKey *k, int defer_init) {
     static volatile int32_t n_unmapped, n_unsupported, n_failed, n_unbound, n_thick;
     VkCtx *c = vk_ctx();
@@ -388,6 +394,14 @@ static Tex *create_tex(const tex_t *t, const TexKey *k, int defer_init) {
     // level (Savage Wind Recomp issue #59, BotW on an RX 580 and a 7800 XT).
     if (type == VK_IMAGE_TYPE_2D && layers >= 6 && w == h && samples == 1 &&
         (d->target == NVN_TEXTURE_TARGET_CUBEMAP || d->target == NVN_TEXTURE_TARGET_CUBEMAP_ARRAY))
+        flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+    // NVN also makes cube views of 2D array textures: Scarlet and Violet keep their sky irradiance and reflection cubes
+    // as square arrays of 6 layers and sample them through cube texture views. Without the flag those views got the
+    // zero stand-in, and every surface the sun does not reach lost its ambient light and went black. Square colour
+    // arrays whose layer count is a multiple of 6 take the flag; on AMD (see above) only floating-point formats, which
+    // is what such light cubes are stored in, and not the BC1-BC5/ASTC material arrays of the issue.
+    else if (type == VK_IMAGE_TYPE_2D && !ds && layers >= 6 && layers % 6 == 0 && w == h && samples == 1 &&
+             d->target == NVN_TEXTURE_TARGET_2D_ARRAY && (!vk_caps.amd || cube_float_format(f.vk)))
         flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
     // NVN renders into a 3D texture slice by slice (a view's min layer is the depth plane, nvn_mtl.m), e.g. the
     // grading LUT of the menu background blur. Vulkan needs a 2D view of the slice for that.
@@ -469,6 +483,7 @@ static Tex *create_tex(const tex_t *t, const TexKey *k, int defer_init) {
                  : d->target == NVN_TEXTURE_TARGET_CUBEMAP_ARRAY && (flags & VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT) ? VK_IMAGE_VIEW_TYPE_CUBE_ARRAY
                  : layers > 1 || d->target == NVN_TEXTURE_TARGET_2D_ARRAY || d->target == NVN_TEXTURE_TARGET_2D_MULTISAMPLE_ARRAY
                      ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
+    p->cube_ok = (flags & VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT) != 0;
     p->alpha_one = f.alpha_one;
     memcpy(p->chan, f.chan, sizeof p->chan);
     p->swz[0] = (uint8_t)d->swizzle_r, p->swz[1] = (uint8_t)d->swizzle_g;

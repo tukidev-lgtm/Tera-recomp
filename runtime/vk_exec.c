@@ -660,6 +660,7 @@ void vk_exec_pass_end(VkExec *ex) {
     vkCmdEndRendering(ex->cb);
     ex->recorded++;
     ex->in_pass = 0;
+    vk_exec_sb_pass_end(ex);
     if (ex->mark) {
         // vk_exec_frame_log resets the frame counters at a present (TOTK_TRACE=gfx): then only the draws since it count
         uint64_t d = vk_exec_frame.draws, d0 = ex->mark_draws0;

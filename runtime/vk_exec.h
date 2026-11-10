@@ -126,6 +126,8 @@ void vk_exec_pass_begin(VkExec *ex);
 void vk_exec_pass_end(VkExec *ex);
 // vk_exec_draw.c: ends transform feedback begun in the open pass, keeping its offsets (before vkCmdEndRendering)
 void vk_exec_xfb_pass_end(VkExec *ex);
+// vk_exec_draw.c: the stencil copies of a depth target that just finished (stencil views read as raw bits)
+void vk_exec_sb_pass_end(VkExec *ex);
 // Full memory barrier (all commands, all memory); ends the open pass first. Copies and dispatches order themselves with
 // it. Skipped when nothing was recorded since the last one.
 void vk_exec_barrier(VkExec *ex);

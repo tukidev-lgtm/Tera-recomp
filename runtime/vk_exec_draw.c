@@ -545,7 +545,7 @@ static VkImageView get_view(VkExec *ex, const VkTexImage *img, const view_t *v, 
     case VK_IMAGE_VIEW_TYPE_3D: ok = img->type == VK_IMAGE_TYPE_3D; break;
     case VK_IMAGE_VIEW_TYPE_CUBE:
     case VK_IMAGE_VIEW_TYPE_CUBE_ARRAY:
-        ok = img->type == VK_IMAGE_TYPE_2D && (img->view_type == VK_IMAGE_VIEW_TYPE_CUBE || img->view_type == VK_IMAGE_VIEW_TYPE_CUBE_ARRAY);
+        ok = img->type == VK_IMAGE_TYPE_2D && img->cube_ok;   // a cube texture, or a 2D array made cube compatible
         break;
     default: ok = img->type == VK_IMAGE_TYPE_2D; break;
     }
@@ -637,7 +637,9 @@ VkImageView vk_exec_target_view(const VkTexImage *img, VkFormat format, VkImageV
     return view;
 }
 
+static void sb_image_gone(VkImage image);   // stencil read as raw bits
 void vk_exec_image_gone(VkImage image) {
+    sb_image_gone(image);
     vk_exec_bc_gone(image);
     vk_hdr_image_gone(image);
     if (!views_by_image.klen) return;
@@ -1237,6 +1239,218 @@ static void feedback_written(VkExec *ex, const VkPipeState *s) {
 static void tex_info_full(VkExec *ex, const GfxShaderRes *r, uint64_t h, int storage, int separate,
                           VkDescriptorImageInfo *out, VkImage *image);
 
+// ---- stencil read as raw bits
+// The game's shaders read a depth-stencil texture's stencil plane (a view in STENCIL mode) with a float-typed fetch and
+// take floatBitsToUint of it: the Switch hands the integer's bits over unchanged. Vulkan leaves a float fetch of an
+// integer view undefined, and NVIDIA's driver does not return those bits: Scarlet's lighting decoded every pixel's
+// material class from garbage and lit shadowed surfaces with no ambient light. Such a view is served from a copy
+// instead, an R32F image whose texels are uintBitsToFloat(stencil) (runtime/shaders/stencil_bits.comp), which a float
+// fetch returns bit for bit. The copy is made outside render passes: at the end of every pass that has the source as
+// its depth target (vk_exec_sb_pass_end, after vkCmdEndRendering), so a pass that samples it sees the stencil as the
+// passes before it left it. A stencil view seen for the first time keeps the plain view until its first copy is made.
+#include "stencil_bits_spv.h"
+#define SB_N 8
+static _Thread_local int sb_seen;   // tex_info_full met a stencil view (tex_info_lookup does not keep it)
+#define SB_VIEWS 4
+typedef struct {
+    VkImage src;                         // the depth-stencil image (VK_NULL_HANDLE: free slot)
+    VkFormat format;
+    uint32_t w, h, layers;
+    VkImage img;                         // the R32F copy
+    VmaAllocation alloc;
+    VkImageView src_view, dst_view;      // stencil aspect of src and storage view of img, both 2D arrays
+    struct { VkImageViewType vt; uint32_t base, n; VkImageView v; } views[SB_VIEWS];
+    int made;                            // copied at least once (and in GENERAL)
+} SBits;
+static SBits SB[SB_N];
+static struct {
+    int tried, ok;
+    PFN_vkCmdPushDescriptorSetKHR push;
+    VkDescriptorSetLayout dsl;
+    VkPipelineLayout layout;
+    VkPipeline pipe;
+    VkSampler sampler;
+} SBP;
+static PlatMutex sb_lock = PLAT_MUTEX_INIT;
+
+static int sb_init(void) {
+    if (SBP.tried) return SBP.ok;
+    SBP.tried = 1;
+    VkCtx *c = vk_ctx();
+    SBP.push = (PFN_vkCmdPushDescriptorSetKHR)vkGetDeviceProcAddr(c->device, "vkCmdPushDescriptorSetKHR");
+    VkDescriptorSetLayoutBinding b[2] = {
+        {.binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1,
+         .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT},
+        {.binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = 1,
+         .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT}};
+    VkDescriptorSetLayoutCreateInfo dci = {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+                                           .flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR,
+                                           .bindingCount = 2, .pBindings = b};
+    VkPushConstantRange pr = {VK_SHADER_STAGE_COMPUTE_BIT, 0, 16};
+    VkPipelineLayoutCreateInfo li = {.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO, .setLayoutCount = 1,
+                                     .pSetLayouts = &SBP.dsl, .pushConstantRangeCount = 1, .pPushConstantRanges = &pr};
+    VkSamplerCreateInfo si = {.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO, .magFilter = VK_FILTER_NEAREST,
+                              .minFilter = VK_FILTER_NEAREST, .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                              .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                              .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, .maxLod = 0};
+    VkShaderModuleCreateInfo mi = {.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+                                   .codeSize = sizeof stencil_bits_spv, .pCode = stencil_bits_spv};
+    VkShaderModule m = VK_NULL_HANDLE;
+    if (!SBP.push || vkCreateDescriptorSetLayout(c->device, &dci, NULL, &SBP.dsl) != VK_SUCCESS ||
+        vkCreatePipelineLayout(c->device, &li, NULL, &SBP.layout) != VK_SUCCESS ||
+        vkCreateSampler(c->device, &si, NULL, &SBP.sampler) != VK_SUCCESS ||
+        vkCreateShaderModule(c->device, &mi, NULL, &m) != VK_SUCCESS) {
+        rt_log("vk: stencil views keep the plain stencil aspect: the copy pipeline could not be created");
+        return 0;
+    }
+    VkComputePipelineCreateInfo ci = {.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+                                      .stage = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                                                .stage = VK_SHADER_STAGE_COMPUTE_BIT, .module = m, .pName = "main"},
+                                      .layout = SBP.layout};
+    VkResult r = vkCreateComputePipelines(c->device, VK_NULL_HANDLE, 1, &ci, NULL, &SBP.pipe);
+    vkDestroyShaderModule(c->device, m, NULL);
+    if (r != VK_SUCCESS) {
+        rt_log("vk: stencil views keep the plain stencil aspect: the copy pipeline could not be created");
+        return 0;
+    }
+    rt_log("vk: stencil views read as raw bits through R32F copies");
+    return SBP.ok = 1;
+}
+
+static void sb_free(SBits *e) {
+    for (int k = 0; k < SB_VIEWS; k++)
+        if (e->views[k].v) vk_defer_view(e->views[k].v);
+    if (e->src_view) vk_defer_view(e->src_view);
+    if (e->dst_view) vk_defer_view(e->dst_view);
+    if (e->img) vk_defer_image(e->img, e->alloc);
+    memset(e, 0, sizeof *e);
+}
+
+// The copy's entry for a depth-stencil image, made on first use; NULL when unavailable. sb_lock held.
+static SBits *sb_entry(const VkTexImage *img) {
+    SBits *free_e = NULL;
+    for (int i = 0; i < SB_N; i++) {
+        if (SB[i].src == img->image) return &SB[i];
+        if (!SB[i].src && !free_e) free_e = &SB[i];
+    }
+    if (!free_e || !sb_init()) return NULL;
+    VkCtx *c = vk_ctx();
+    SBits e = {.src = img->image, .format = img->format, .w = img->width, .h = img->height,
+               .layers = img->layers ? img->layers : 1};
+    VkImageCreateInfo ii = {.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, .imageType = VK_IMAGE_TYPE_2D,
+                            .format = VK_FORMAT_R32_SFLOAT, .extent = {e.w, e.h, 1}, .mipLevels = 1,
+                            .arrayLayers = e.layers, .samples = VK_SAMPLE_COUNT_1_BIT,
+                            .tiling = VK_IMAGE_TILING_OPTIMAL,
+                            .usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
+                            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED};
+    VmaAllocationCreateInfo ai = {.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE};
+    if (vmaCreateImage(c->vma, &ii, &ai, &e.img, &e.alloc, NULL) != VK_SUCCESS) return NULL;
+    VkImageViewCreateInfo sv = {.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, .image = img->image,
+                                .viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY, .format = img->format,
+                                .subresourceRange = {VK_IMAGE_ASPECT_STENCIL_BIT, 0, 1, 0, e.layers}};
+    VkImageViewCreateInfo dv = {.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, .image = e.img,
+                                .viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY, .format = VK_FORMAT_R32_SFLOAT,
+                                .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, e.layers}};
+    if (vkCreateImageView(c->device, &sv, NULL, &e.src_view) != VK_SUCCESS ||
+        vkCreateImageView(c->device, &dv, NULL, &e.dst_view) != VK_SUCCESS) {
+        sb_free(&e);
+        return NULL;
+    }
+    *free_e = e;
+    rt_log("vk: stencil copy %ux%u x%u made for a stencil view", e.w, e.h, e.layers);
+    return free_e;
+}
+
+// From tex_info_full (texture lock held): the copy's view for a sampled stencil view, VK_NULL_HANDLE to keep the plain
+// one (no copy made yet, or none possible)
+static VkImageView sb_view(const VkTexImage *img, VkImageViewType vt, uint32_t base, uint32_t n) {
+    if (img->samples > 1 || img->type != VK_IMAGE_TYPE_2D) return VK_NULL_HANDLE;
+    plat_mutex_lock(&sb_lock);
+    SBits *e = sb_entry(img);
+    VkImageView v = VK_NULL_HANDLE;
+    if (e && e->made && base + n <= e->layers) {
+        int k;
+        for (k = 0; k < SB_VIEWS && e->views[k].v; k++)
+            if (e->views[k].vt == vt && e->views[k].base == base && e->views[k].n == n) break;
+        if (k < SB_VIEWS && e->views[k].v) v = e->views[k].v;
+        else if (k < SB_VIEWS) {
+            VkImageViewCreateInfo ci = {.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, .image = e->img, .viewType = vt,
+                                        .format = VK_FORMAT_R32_SFLOAT,
+                                        .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, base, n}};
+            if (vkCreateImageView(vk_ctx()->device, &ci, NULL, &v) == VK_SUCCESS)
+                e->views[k].vt = vt, e->views[k].base = base, e->views[k].n = n, e->views[k].v = v;
+            else v = VK_NULL_HANDLE;
+        }
+    }
+    plat_mutex_unlock(&sb_lock);
+    return v;
+}
+
+static void sb_barrier(VkCommandBuffer cb) {
+    VkMemoryBarrier2 mb = {.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+                           .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                           .srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT,
+                           .dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                           .dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT};
+    VkDependencyInfo d = {.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO, .memoryBarrierCount = 1, .pMemoryBarriers = &mb};
+    vkCmdPipelineBarrier2(cb, &d);
+}
+
+static void sb_copy(VkExec *ex, SBits *e) {
+    VkCommandBuffer cb = ex->cb;
+    if (!e->made) {   // the copy's first use: UNDEFINED -> GENERAL
+        VkImageMemoryBarrier2 ib = {.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                                    .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                    .dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                    .dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
+                                    .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED, .newLayout = VK_IMAGE_LAYOUT_GENERAL,
+                                    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .image = e->img,
+                                    .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, e->layers}};
+        VkDependencyInfo d = {.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO, .imageMemoryBarrierCount = 1,
+                              .pImageMemoryBarriers = &ib};
+        vkCmdPipelineBarrier2(cb, &d);
+    }
+    sb_barrier(cb);   // the pass's depth-stencil writes, before the copy reads them
+    VkImageLayout sl = ex->nfbl && in_fbl(ex, e->src) ? VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT
+                                                       : VK_IMAGE_LAYOUT_GENERAL;
+    VkDescriptorImageInfo si = {SBP.sampler, e->src_view, sl}, di = {VK_NULL_HANDLE, e->dst_view, VK_IMAGE_LAYOUT_GENERAL};
+    VkWriteDescriptorSet w[2] = {
+        {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstBinding = 0, .descriptorCount = 1,
+         .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .pImageInfo = &si},
+        {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstBinding = 1, .descriptorCount = 1,
+         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .pImageInfo = &di}};
+    uint32_t pc[4] = {e->w, e->h, e->layers, 0};
+    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, SBP.pipe);
+    rec_push(SBP.push, cb, VK_PIPELINE_BIND_POINT_COMPUTE, SBP.layout, 0, 2, w);
+    vkCmdPushConstants(cb, SBP.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof pc, pc);
+    vkCmdDispatch(cb, (e->w + 7) / 8, (e->h + 7) / 8, e->layers);
+    sb_barrier(cb);   // and the passes after it read the copy
+    ex->recorded += 6;
+    e->made = 1;
+}
+
+// vk_exec_pass_end, after vkCmdEndRendering: copies the stencil of a depth target some draw samples as a stencil view,
+// and makes the first copy of any copy not made yet
+void vk_exec_sb_pass_end(VkExec *ex) {
+    if (!SBP.ok) return;
+    int any = 0;
+    plat_mutex_lock(&sb_lock);
+    for (int i = 0; i < SB_N; i++)
+        if (SB[i].src && (!SB[i].made || SB[i].src == ex->depth.image)) sb_copy(ex, &SB[i]), any = 1;
+    plat_mutex_unlock(&sb_lock);
+    if (any) B.pipe[1] = VK_NULL_HANDLE, vk_exec_draw_new_cb();   // the game's compute pipeline and sets: bound again
+}
+
+// vk_exec_image_gone: a depth-stencil image that goes takes its copy along
+static void sb_image_gone(VkImage image) {
+    plat_mutex_lock(&sb_lock);
+    for (int i = 0; i < SB_N; i++)
+        if (SB[i].src == image) sb_free(&SB[i]);
+    plat_mutex_unlock(&sb_lock);
+}
+
+
 // Sampled-texture descriptors per (handle, resource type, separate), kept while nothing they derive from changed: the
 // slot's resolution and texture entry (slot_still) and the samplers (vk_sampler_gen); the layout is set again on every
 // hit from the images in the feedback layout (in_fbl of the image kept with it). The first binding of a slot in a submission (vk_texture_epoch) still makes the slot lookup
@@ -1281,7 +1495,9 @@ static void tex_info_lookup(VkExec *ex, const GfxShaderRes *r, uint64_t h, int s
         return;
     }
     uint64_t tok = token_of(h);   // before the lookup
+    sb_seen = 0;
     tex_info_full(ex, r, h, storage, separate, out, &image);
+    if (sb_seen) return;   // a stencil view: its descriptor changes once its copy is made, so it is not kept
     *m = (typeof(*m)){.h = h, .tok = tok, .gen = gen, .epoch = ep, .sgen = sg, .type = r->type,
                       .separate = (uint8_t)separate, .valid = 1, .image = image, .out = *out};
 }
@@ -1293,19 +1509,30 @@ static void tex_info_full(VkExec *ex, const GfxShaderRes *r, uint64_t h, int sto
     VkImageView view = VK_NULL_HANDLE;
     VkSampler samp = VK_NULL_HANDLE;
     VkImageLayout layout = VK_IMAGE_LAYOUT_GENERAL;
+    int stencil_copy = 0;
     if (h) {
         view_t v;
         int hv;
         const VkTexImage *img = vk_texture_by_id_locked((int)(h & 0xfffff), &v, &hv);
         if (img) view = get_view(ex, img, &v, hv, r->type, storage), *image = img->image;
+        if (img && view && !storage && (img->aspect & VK_IMAGE_ASPECT_STENCIL_BIT) &&
+            vk_exec_view_aspect(img, &v, hv) == VK_IMAGE_ASPECT_STENCIL_BIT) {   // stencil read as raw bits
+            VkImageViewType vt = res_view_type(r->type);
+            int arr = vt == VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+            uint32_t base = hv && v.set_layers ? v.min_layer : 0;
+            uint32_t n = arr ? (hv && v.set_layers && v.nlayers ? v.nlayers : img->layers - base) : 1;
+            VkImageView cv = vt == VK_IMAGE_VIEW_TYPE_2D || arr ? sb_view(img, vt, base, n) : VK_NULL_HANDLE;
+            sb_seen = 1;
+            if (cv) view = cv, *image = VK_NULL_HANDLE, stencil_copy = 1;
+        }
         if (img && storage) vk_texture_storage_bound_locked(img);
-        if (img && !storage && ex->nfbl && in_fbl(ex, img->image)) layout = VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT;
+        if (img && !storage && !stencil_copy && ex->nfbl && in_fbl(ex, img->image)) layout = VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT;
         if (!storage && !separate) {
             // A depth texture sampled without a compare reads one texel on the Switch, whatever the sampler's filter:
             // blending neighbouring depths puts reconstructed positions in mid-air at object edges (shadow masks).
             int sid = (int)(h >> 20 & 0xfff);
-            int point = img && (img->aspect & VK_IMAGE_ASPECT_DEPTH_BIT) && !(r->type & 0x400) &&
-                        vk_exec_view_aspect(img, &v, hv) != VK_IMAGE_ASPECT_STENCIL_BIT;
+            int point = stencil_copy || (img && (img->aspect & VK_IMAGE_ASPECT_DEPTH_BIT) && !(r->type & 0x400) &&
+                        vk_exec_view_aspect(img, &v, hv) != VK_IMAGE_ASPECT_STENCIL_BIT);
             samp = point ? vk_sampler_point_by_id_locked(sid) : vk_sampler_by_id_locked(sid);
         }
     }

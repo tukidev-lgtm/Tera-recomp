@@ -1,0 +1,16 @@
+#version 450
+// A depth-stencil texture's stencil plane as raw bits in an R32F image (runtime/vk_exec_draw.c "stencil read as raw
+// bits"): texel = uintBitsToFloat(stencil). The game's shaders read a stencil view through a float-typed fetch and take
+// floatBitsToUint of it, as the Switch returns the integer's bits; Vulkan leaves a float fetch of an integer view
+// undefined, and a float fetch of this copy returns exactly those bits.
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+layout(set = 0, binding = 0) uniform usampler2DArray src;
+layout(set = 0, binding = 1, r32f) uniform writeonly image2DArray dst;
+layout(push_constant) uniform Push { uvec4 size; } pc;   // width, height, layers
+
+void main() {
+    uvec3 g = gl_GlobalInvocationID;
+    if (g.x >= pc.size.x || g.y >= pc.size.y || g.z >= pc.size.z) return;
+    uint s = texelFetch(src, ivec3(g), 0).r;
+    imageStore(dst, ivec3(g), vec4(uintBitsToFloat(s), 0.0, 0.0, 1.0));
+}
