@@ -80,3 +80,6 @@ desktop.ini
 *.trpfd
 *.trpak
 *.bnsh
+
+# frame dumps (F9, TOTK_DUMP): game-derived images
+/dump/

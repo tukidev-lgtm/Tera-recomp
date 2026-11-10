@@ -1,4 +1,4 @@
-// TOTK_DUMP=<frame>: a frame dump for the Vulkan back end, which RenderDoc cannot capture (it hides
+// TOTK_DUMP=<frame> (or F9 in the window: a frame shortly after): a frame dump for the Vulkan back end, which RenderDoc cannot capture (it hides
 // VK_EXT_external_memory_host). Between presents frame-1 and frame, the replay's command buffers also copy, after each
 // render pass, its colour and depth targets and, after each dispatch, the storage images it writes into host buffers;
 // the completion thread turns them into 8-bit PNGs once the submission is done. 3D textures (LUTs, volumes) sampled or
@@ -862,9 +862,25 @@ out:
 
 static void make_dirs(char *path) { plat_file_mkdir_p(path); }
 
+static void dump_setup(void);
+static volatile int32_t dump_requested;   // F9 (vk_dump_request): the next replay arms a dump of a frame soon after
+
+void vk_dump_request(void) { __atomic_store_n(&dump_requested, 1, __ATOMIC_RELEASE); }
+
+// The replay thread, before each submission: an F9 request arms the frame two presents ahead (once per run)
+void vk_dump_poll(void) {
+    if (!__atomic_exchange_n(&dump_requested, 0, __ATOMIC_ACQ_REL) || dump_frame) return;
+    dump_frame = __atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED) + 3;
+    dump_setup();
+}
+
 void vk_dump_init(void) {
     const char *e = cfg_get("TOTK_DUMP");
     if (!e || !*e || !(dump_frame = strtoull(e, NULL, 10))) return;
+    dump_setup();
+}
+
+static void dump_setup(void) {
     const char *lf = cfg_get("TOTK_DUMP_LOG");
     if (lf && *lf) log_from = strtoull(lf, NULL, 10);
     const char *sr = cfg_get("TOTK_DUMP_SKIP_RUNS");

@@ -179,6 +179,8 @@ void vk_exec_frame_log(const tex_t *presented, uint64_t frame);
 // textures, samplers) and images.txt (per image value statistics). The hooks run only when vk_dump_armed is set.
 extern int vk_dump_armed;
 void vk_dump_init(void);                 // reads the environment; vk_exec_record's first call
+void vk_dump_request(void);              // F9: dump a frame shortly after (any thread)
+void vk_dump_poll(void);                 // vk_exec_record: arms a requested dump
 void vk_dump_pass_end(VkExec *ex);       // after vkCmdEndRendering
 void vk_dump_draw(VkExec *ex, const VkPipeState *s, VkPipeline p, const VkPipeInfo *info);   // after a draw's binds
 void vk_dump_dispatch(VkExec *ex, const GfxShader *cs, VkPipeline p, const VkPipeInfo *info, const p_dispatch *d);

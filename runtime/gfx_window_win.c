@@ -17,6 +17,8 @@
 #include "fs.h"
 #include "gfx.h"
 #include "gfx_wsys.h"
+
+void vk_dump_request(void);   // vk_dump.c: F9
 #include "input.h"
 #include "input_win.h"
 #include "nvn_api.h"
@@ -206,6 +208,10 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (menu_window_msg(h, m, w, l, &input_res)) return input_res;
     switch (m) {
     case WM_KEYDOWN:
+        if (w == VK_F9 && !(l & (1 << 30))) {   // a frame dump (vk_dump.c) to the dump folder beside the log
+            vk_dump_request();
+            rt_log("vk_dump: F9: dumping a frame");
+        }
         if (w == VK_F11 && !(l & (1 << 30))) {   // bit 30: auto-repeat
             input_cursor_suspend(1);
             toggle_fullscreen(h);
