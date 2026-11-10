@@ -1292,28 +1292,17 @@ class Cleanup(Step):
 # ---- the desktop shortcut
 
 SHORTCUT_NAME = 'Pokemon Scarlet'
-ICON = 'game.ico'
-# Converts the game's icon (a JPEG in the Control NCA) to a 256x256 PNG and writes the shortcut. System.Drawing and the
-# WScript.Shell COM object ship with Windows; the Desktop is asked from .NET, which follows a OneDrive redirection.
+# Writes the shortcut through the WScript.Shell COM object, which ships with Windows. Its icon is totk.exe's own
+# (runtime/totk.ico, compiled into the exe), the icon Steam also shows for the exe added as a non-Steam game. The
+# Desktop is asked from .NET, which follows a OneDrive redirection.
 SHORTCUT_PS = r'''
 $ErrorActionPreference = 'Stop'
-if ($jpg -ne '') {
-    Add-Type -AssemblyName System.Drawing
-    $img = [System.Drawing.Image]::FromFile($jpg)
-    $bmp = New-Object System.Drawing.Bitmap 256, 256
-    $g = [System.Drawing.Graphics]::FromImage($bmp)
-    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-    $g.DrawImage($img, 0, 0, 256, 256)
-    $g.Dispose(); $img.Dispose()
-    $bmp.Save($png, [System.Drawing.Imaging.ImageFormat]::Png)
-    $bmp.Dispose()
-}
 $desktop = [Environment]::GetFolderPath('Desktop')
 $link = Join-Path $desktop ($name + '.lnk')
 $s = (New-Object -ComObject WScript.Shell).CreateShortcut($link)
 $s.TargetPath = $exe
 $s.WorkingDirectory = $dir
-if ($ico -ne '') { $s.IconLocation = $ico + ',0' }
+$s.IconLocation = $exe + ',0'
 $s.Description = $name + ' (Tera Recomp)'
 $s.Save()
 Write-Output $link
@@ -1324,80 +1313,13 @@ def ps_quote(text):
     return "'" + str(text).replace("'", "''") + "'"
 
 
-def game_icon(ctx, out):
-    """The game's own icon, a JPEG from the RomFS of the base game's Control NCA (icon_AmericanEnglish.dat, else
-    the first icon_*.dat), extracted with hactool into out/. None when the inputs are not at hand or hactool fails:
-    the shortcut then shows totk.exe's icon."""
-    o = ctx.options
-    base, keys = getattr(o, 'base', None), getattr(o, 'keys', None)
-    if not base or not keys or not Path(keys).is_file():
-        return None
-    try:
-        base = game_file(ctx, 'base')
-        key_values = load_keys(Path(keys))
-        with base.open('rb') as f:
-            _, entries = container_entries(f, base.stat().st_size)
-            tickets = common_tickets(f, entries)
-            controls = [r for r, _ in nca_inventory(f, entries, key_values) if r['content_type'] == 2]
-        del key_values
-        if not controls:
-            return None
-        remove(out)
-        out.mkdir(parents=True)
-        nca = out / 'control.nca'
-        extract.copy_range(base, extract.record_offset(controls[0]), controls[0]['size'], nca)
-        title_keys, hactool_keys = out / 'title.keys', out / 'hactool.keys'
-        fd = os.open(title_keys, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, 'w') as f:
-            for rights, key in tickets.items():
-                f.write(f'{rights.hex()} = {key.hex()}\n')
-        extract.hactool_prod_keys(Path(keys), hactool_keys)
-        romfs = out / 'romfs'
-        code, _ = extract.run_hactool([str(ctx.layout.hactool), '-x', '-y', '--disablekeywarns', '--suppresskeys', '-k',
-                                       str(hactool_keys), f'--romfsdir={romfs}', str(nca)],
-                                      dict(os.environ, MNG_TITLE_KEYS=str(title_keys)))
-        for f in (nca, title_keys, hactool_keys):
-            f.unlink(missing_ok=True)
-        icons = sorted(romfs.glob('icon_*.dat')) if romfs.is_dir() else []
-        if code or not icons:
-            return None
-        return next((i for i in icons if i.name == 'icon_AmericanEnglish.dat'), icons[0])
-    except (OSError, ValueError):
-        return None
-
-
-def png_to_ico(png, ico):
-    """An .ico holding one 256x256 PNG image (Windows Vista and later read PNG entries)."""
-    data = Path(png).read_bytes()
-    header = (b'\0\0\1\0\1\0' + bytes([0, 0, 0, 0]) + (1).to_bytes(2, 'little') + (32).to_bytes(2, 'little')
-              + len(data).to_bytes(4, 'little') + (22).to_bytes(4, 'little'))
-    tmp = Path(ico).with_suffix('.tmp')
-    tmp.write_bytes(header + data)
-    os.replace(tmp, ico)
-
-
 def desktop_shortcut(ctx):
-    """A shortcut on the Desktop that starts totk.exe in the install folder, with the game's own icon. Made once
-    (ctx.state['shortcut']); a player who deletes it keeps it deleted. A failure warns: the game is installed."""
+    """A shortcut on the Desktop that starts totk.exe in the install folder. Made once (ctx.state['shortcut']); a player
+    who deletes it keeps it deleted. A failure warns: the game is installed."""
     dest, rep = ctx.dest, ctx.reporter
-    work = ctx.temp / 'icon'
-    jpg = game_icon(ctx, work)
-    png, ico = work / 'icon.png', dest / ICON
     script = ''.join(f'${k} = {ps_quote(v)}\n' for k, v in (
-        ('jpg', jpg or ''), ('png', png), ('exe', dest / ('totk' + EXE)), ('dir', dest), ('name', SHORTCUT_NAME),
-        ('ico', ico if jpg else ''))) + SHORTCUT_PS
-    if jpg:   # the PNG first, then the icon file the shortcut names
-        png_script = ''.join(f'${k} = {ps_quote(v)}\n' for k, v in (('jpg', jpg), ('png', png))) + \
-            SHORTCUT_PS.split('$desktop')[0]
-        r = run_powershell(png_script)
-        if r is None or r.returncode or not png.is_file():
-            rep.log(f'shortcut: the icon could not be converted ({r and r.stderr.strip()[-300:]})')
-            script = script.replace(f'$ico = {ps_quote(ico)}', "$ico = ''")
-        else:
-            png_to_ico(png, ico)
-        script = script.replace(f'$jpg = {ps_quote(jpg)}', "$jpg = ''")
+        ('exe', dest / ('totk' + EXE)), ('dir', dest), ('name', SHORTCUT_NAME))) + SHORTCUT_PS
     r = run_powershell(script)
-    remove(work)
     if r is None or r.returncode:
         rep.warning('warn.shortcut_failed', detail=(r.stderr.strip()[-300:] if r else 'powershell not found'))
         return
