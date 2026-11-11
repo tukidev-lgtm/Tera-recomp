@@ -1170,8 +1170,23 @@ static void icon_forget(Tex *e) {
 }
 
 // After an upload: a small single-level BC4 texture whose blocks are a known mask is kept, holding the game's blocks.
+// TOTK_PROMPT_SURVEY: every small single-level texture of any format (the icons of other screens may be larger,
+// coloured or another BC format), level 0 deswizzled, named by its Vulkan format.
+static void icon_survey_any(Tex *e) {
+    const nvn_texdesc *d = &e->t.d;
+    int bw, bh, bpb = nvn_fmt_bpb(d->format, &bw, &bh);
+    if (!bpb || d->width > 128 || d->height > 128 || e->pub.levels != 1 || e->pub.layers != 1 ||
+        e->pub.type != VK_IMAGE_TYPE_2D || e->f.astc_bw)
+        return;
+    uint32_t rb = (d->width + bw - 1) / bw * (uint32_t)bpb, n = rb * ((d->height + bh - 1) / bh);
+    uint8_t *buf = malloc(n);
+    if (buf && !nvn_deswizzle(d, 0, 0, e->t.mem, buf, rb)) prompt_icon_survey_fmt(buf, n, d->width, d->height, e->f.vk);
+    free(buf);
+}
+
 static void icon_check(Tex *e) {
     const nvn_texdesc *d = &e->t.d;
+    if (prompt_icon_surveying() && e->f.vk != VK_FORMAT_BC4_UNORM_BLOCK) icon_survey_any(e);
     if (e->f.vk != VK_FORMAT_BC4_UNORM_BLOCK || d->width > 64 || d->height > 64 || d->width % 4 || d->height % 4 ||
         e->pub.levels != 1 || e->pub.layers != 1 || !prompt_icons_enabled()) {
         icon_forget(e);

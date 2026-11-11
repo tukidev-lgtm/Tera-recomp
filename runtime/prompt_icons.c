@@ -99,21 +99,33 @@ void prompt_icon_bc4(int art, uint32_t w, uint32_t h, uint8_t *out) {
         }
 }
 
-// The masks the survey wrote, by hash: each goes to disk once per run.
-void prompt_icon_survey(const uint8_t *blocks, size_t n, uint32_t w, uint32_t h) {
-    static int on = -1, nseen;
-    static uint64_t seen[4096];
+// The textures the survey wrote, by hash: each goes to disk once per run.
+int prompt_icon_surveying(void) {
+    static int on = -1;
     if (on < 0) {
         on = cfg_bool("TOTK_PROMPT_SURVEY");
-        if (on) plat_file_mkdir_p("dump/icons"), rt_log("prompts: survey on: unknown icon masks go to dump/icons");
+        if (on) plat_file_mkdir_p("dump/icons"), rt_log("prompts: survey on: unknown small textures go to dump/icons");
     }
-    if (!on) return;
-    uint64_t x = fnv(blocks, n);
-    for (int i = 0; i < nseen; i++)
-        if (seen[i] == x) return;
-    if (nseen == 4096) return;
-    seen[nseen++] = x;
-    char path[96];
-    snprintf(path, sizeof path, "dump/icons/%016llx_%ux%u.bin", (unsigned long long)x, w, h);
-    plat_file_write(path, blocks, n);
+    return on;
+}
+
+void prompt_icon_survey_fmt(const uint8_t *data, size_t n, uint32_t w, uint32_t h, int vk_format) {
+    static PlatMutex lock = PLAT_MUTEX_INIT;
+    static int nseen;
+    static uint64_t seen[8192];
+    if (!prompt_icon_surveying()) return;
+    uint64_t x = fnv(data, n) ^ (uint64_t)vk_format;
+    plat_mutex_lock(&lock);
+    int fresh = nseen < 8192;
+    for (int i = 0; i < nseen && fresh; i++) fresh = seen[i] != x;
+    if (fresh) seen[nseen++] = x;
+    plat_mutex_unlock(&lock);
+    if (!fresh) return;
+    char path[112];
+    snprintf(path, sizeof path, "dump/icons/%016llx_%ux%u_vk%d.bin", (unsigned long long)x, w, h, vk_format);
+    plat_file_write(path, data, n);
+}
+
+void prompt_icon_survey(const uint8_t *blocks, size_t n, uint32_t w, uint32_t h) {
+    prompt_icon_survey_fmt(blocks, n, w, h, 139);   // VK_FORMAT_BC4_UNORM_BLOCK
 }
