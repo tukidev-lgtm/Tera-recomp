@@ -225,7 +225,7 @@ uint64_t res_heap_extra_bytes(void) {
 // memory pool of 268 MiB, sized for 1080p: it grows with the pixel count, and the application pool with it.
 #define SV_RT_MEM (268ull << 20)
 
-static struct { int decided; unsigned w, h; } SV;
+static struct { int decided; unsigned w, h; float drs; } SV;
 
 // TOTK_OUTPUT_RES, 16:9 only (the game's camera and layouts are 16:9; another shape takes the largest 16:9 size inside
 // it), 1280x720 to 7680x4320.
@@ -247,6 +247,19 @@ static void sv_decide(void) {
         w = fw, h = fh;
     }
     SV.w = w & ~1u, SV.h = h & ~1u;
+    // TOTK_RENDER_SCALE: above 100% the whole picture is drawn larger (the UI with it) and the present shrinks it to the
+    // window; below, the scene is drawn smaller inside the game's targets and the game enlarges it, as for its dynamic
+    // resolution (the set's sites at main+0xdfabf8).
+    const char *rs = cfg_value("TOTK_RENDER_SCALE");
+    int pct = !strcmp(rs, "game") ? 100 : atoi(rs);
+    if (pct < 25 || pct > 400) pct = 100;
+    SV.drs = 1;
+    if (pct < 100) SV.drs = pct / 100.0f;
+    if (pct > 100) {
+        double k = pct / 100.0, kmax = fmin(7680.0 / SV.w, 4320.0 / SV.h);
+        if (k > kmax) k = kmax;
+        SV.w = (unsigned)(SV.w * k + 0.5) & ~1u, SV.h = (unsigned)(SV.h * k + 0.5) & ~1u;
+    }
 }
 
 // The render target pool for the size: 268 MiB times the pixels over 1920x1080, in whole MiB, never less.
@@ -261,7 +274,7 @@ static uint64_t sv_res_extra_bytes(void) { return ((sv_rt_mem() - SV_RT_MEM) + 0
 
 static void sv_res_init(void) {
     sv_decide();
-    if (SV.w == BASE_W && SV.h == BASE_H) {
+    if (SV.w == BASE_W && SV.h == BASE_H && SV.drs == 1) {
         rt_log("resolution: the game's own, 1920x1080");
         return;
     }
@@ -280,9 +293,10 @@ static void sv_res_init(void) {
     memcpy(page + 160, &mem, sizeof mem);
     uint32_t half[2] = {SV.w / 2, SV.h / 2};
     memcpy(page + 164, half, sizeof half);
+    memcpy(page + 172, &SV.drs, sizeof SV.drs);
     rt_patch_switch(set, 1);
-    rt_log("resolution: %ux%u; render target memory %u MiB, application pool +%llu MiB", SV.w, SV.h, mem >> 20,
-           (unsigned long long)(sv_res_extra_bytes() >> 20));
+    rt_log("resolution: %ux%u, 3D scene at %.0f%%; render target memory %u MiB, application pool +%llu MiB", SV.w, SV.h,
+           SV.drs * 100.0, mem >> 20, (unsigned long long)(sv_res_extra_bytes() >> 20));
 }
 
 // TOTK_TEX_HEAP_EXTRA_MB (0 to 4096): more room in "TextureHeap" and its parent "ゲームグラフィックス", the heap the
@@ -702,6 +716,12 @@ int res_dlss_mode(const char *m) {
 }
 
 void res_sizes(unsigned out[2], unsigned scene[2]) {
+    if (RT_SV) {   // the game image and the largest scene (the game's dynamic resolution can lower it per frame)
+        sv_decide();
+        out[0] = SV.w, out[1] = SV.h;
+        scene[0] = (unsigned)(SV.w * SV.drs + 0.5f), scene[1] = (unsigned)(SV.h * SV.drs + 0.5f);
+        return;
+    }
     decide();
     out[0] = R.on ? R.ow : BASE_W, out[1] = R.on ? R.oh : BASE_H;
     scene[0] = R.on ? R.sw : SCENE_W, scene[1] = R.on ? R.sh : SCENE_H;
