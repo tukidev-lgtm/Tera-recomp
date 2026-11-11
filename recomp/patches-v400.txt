@@ -16,6 +16,37 @@ site fps60 main bcc01c 11000501 52800021
 # (main+0x2b7a858), and keeps the lower of base and bucket. ldrsb w20, [x10, #0x20] -> mov w20, #0 (FPS60)
 site fps60 main 2b7a858 39c08154 52800014
 
+# Game resolution (runtime/resolution.c sv_res_init, TOTK_OUTPUT_RES): the game draws at 1920x1080, a size written into
+# its code in several places, and set svres makes each of them read the patch page instead: +128 the width and +132
+# the height (u32), +136 {1280, width} and +144 {720, height} (the handheld and docked sizes, two u32 each), +152 the
+# width and +156 the height as floats, +160 the GPU memory for render targets in bytes (u32).
+set svres TERA_SVRES 0
+# The window (described by main+0xbc51b0..0xbc528c, which also sizes the swapchain and the output and UI targets): its
+# size comes from the engine config's screenWidth / screenHeight (config +0x10 / +0x18), read at main+0xbc525c and
+# main+0xbc5264. ldr x9, [x8, #0x10] / [x8, #0x18] -> the page's width / height.
+site svres main bc525c f9400909 @page:x9 b9408129
+site svres main bc5264 f9400d09 @page:x9 b9408529
+# The render resolution controller (constructed at main+0xbd6fe0, run each frame by main+0xdfa800, which scales its base
+# for the dynamic resolution and publishes the render size): its base at +0x430 {handheld, docked} widths and +0x438
+# heights. movk x8, #0x780, lsl #32 / #0x438 -> {1280, width} / {720, height} from the page.
+site svres main bd7018 f2c0f008 @page:x8 f9404508
+site svres main bd7024 f2c08708 @page:x8 f9404908
+# The scene's share of its render target, the render size divided by a fixed 1920.0 and 1080.0 (main+0xd42930,
+# main+0x187be70). mov w8, #0x44f00000 / #0x44870000 -> the page's floats.
+site svres main d42930 52a89e08 @page:x8 b9409908
+site svres main d42940 52a890e8 @page:x8 b9409d08
+site svres main 187be70 52a89e08 @page:x8 b9409908
+# The scene render targets with a fixed 1920x1080 in their description (passed to main+0x107e220, which creates them).
+site svres main 2635370 5280f00a @page:x10 b940814a
+site svres main 2635374 5280870b @page:x11 b940856b
+site svres main 1664100 5280f009 @page:x9 b9408129
+site svres main 16640f8 5280870a @page:x10 b940854a
+site svres main 14b0020 5280f008 @page:x8 b9408108
+site svres main 14b0024 5280870a @page:x10 b940854a
+# The GPU memory the render targets come from (graphics config memorySize_CpuInvisible_GpuCached, which main+0x146e770
+# sets to 268 MiB when the data says 320 MiB): without more of it, a larger size runs out when the map opens.
+site svres main 146e770 52a21809 @page:x9 b940a129
+
 # Debugging trace points (runtime/tracepoint.c). Remove before a release build.
 # Boot: nnMain's init chain (main+0x11bcc84) calls the object's virtual main+0x14fd2d8, which locks a field of the
 # null result of main+0x14ff4dc: that object's +0x58 is empty. main+0x11e1a60 (early in the same chain) was checked

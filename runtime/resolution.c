@@ -196,7 +196,10 @@ static uint64_t shadow_kib(void) {
     return R.shadow > SHADOW_BASE ? ((uint64_t)R.shadow * R.shadow - SHADOW_BASE * SHADOW_BASE) * 8 * 3 / 1024 : 0;
 }
 
+static uint64_t sv_res_extra_bytes(void);
+
 static int bigger(void) {
+    if (RT_SV) return 0;   // Scarlet and Violet: sv_res_init
     decide();
     return R.ow != BASE_W || R.oh != BASE_H || R.scene_set || shadow_kib();
 }
@@ -209,7 +212,76 @@ uint64_t res_heap_extra_kib(void) {
     return kib + ((shadow_kib() + 1023) & ~1023ull);   // whole MiB
 }
 
-uint64_t res_heap_extra_bytes(void) { return ((res_heap_extra_kib() << 10) + 0x1fffff) & ~0x1fffffull; }
+uint64_t res_heap_extra_bytes(void) {
+    if (RT_SV) return sv_res_extra_bytes();
+    return ((res_heap_extra_kib() << 10) + 0x1fffff) & ~0x1fffffull;
+}
+
+// ---- Scarlet and Violet (recomp/patches-v400.txt, set svres). The game draws at 1920x1080, a size written into its
+// code: the window (which sizes the swapchain and the output and UI targets), the render resolution controller's base
+// (the scene size, scaled down by the game's dynamic resolution), the scene render targets and the scene's share of
+// them. The set makes each read the size from the patch page, so the whole picture, the UI with it, is drawn at the
+// asked size, and the present scales that to the window (gfx_present.c). The game's render targets come from one GPU
+// memory pool of 268 MiB, sized for 1080p: it grows with the pixel count, and the application pool with it.
+#define SV_RT_MEM (268ull << 20)
+
+static struct { int decided; unsigned w, h; } SV;
+
+// TOTK_OUTPUT_RES, 16:9 only (the game's camera and layouts are 16:9; another shape takes the largest 16:9 size inside
+// it), 1280x720 to 7680x4320.
+static void sv_decide(void) {
+    if (SV.decided) return;
+    SV.decided = 1;
+    SV.w = BASE_W, SV.h = BASE_H;
+    unsigned w = 0, h = 0;
+    char tail;
+    const char *o = cfg_value("TOTK_OUTPUT_RES");
+    if (sscanf(o, "%ux%u%c", &w, &h, &tail) != 2 || w < 1280 || h < 720 || w > 7680 || h > 4320) {
+        rt_log("resolution: TOTK_OUTPUT_RES=%s is not <width>x<height> in 1280x720..7680x4320; 1920x1080", o);
+        return;
+    }
+    if (!res_is_16x9(w, h)) {
+        unsigned fw = w, fh = (unsigned)((uint64_t)w * 9 / 16);
+        if (fh > h) fh = h, fw = (unsigned)((uint64_t)h * 16 / 9);
+        rt_log("resolution: %ux%u is not 16:9, which Scarlet and Violet need; %ux%u", w, h, fw & ~1u, fh & ~1u);
+        w = fw, h = fh;
+    }
+    SV.w = w & ~1u, SV.h = h & ~1u;
+}
+
+// The render target pool for the size: 268 MiB times the pixels over 1920x1080, in whole MiB, never less.
+static uint64_t sv_rt_mem(void) {
+    sv_decide();
+    uint64_t px = (uint64_t)SV.w * SV.h, base = (uint64_t)BASE_W * BASE_H;
+    if (px <= base) return SV_RT_MEM;
+    return ((SV_RT_MEM * px / base) + 0xfffff) & ~0xfffffull;
+}
+
+static uint64_t sv_res_extra_bytes(void) { return ((sv_rt_mem() - SV_RT_MEM) + 0x1fffff) & ~0x1fffffull; }
+
+static void sv_res_init(void) {
+    sv_decide();
+    if (SV.w == BASE_W && SV.h == BASE_H) {
+        rt_log("resolution: the game's own, 1920x1080");
+        return;
+    }
+    int set = rt_patch_set("svres");
+    uint8_t *page = rt_patch_page();
+    if (set < 0 || !page) {
+        rt_log("resolution: the generated C has no svres patch set; the game keeps 1920x1080");
+        return;
+    }
+    uint32_t wh[2] = {SV.w, SV.h}, w64[2] = {1280, SV.w}, h64[2] = {720, SV.h}, mem = (uint32_t)sv_rt_mem();
+    float f[2] = {(float)SV.w, (float)SV.h};
+    memcpy(page + 128, wh, sizeof wh);
+    memcpy(page + 136, w64, sizeof w64);
+    memcpy(page + 144, h64, sizeof h64);
+    memcpy(page + 152, f, sizeof f);
+    memcpy(page + 160, &mem, sizeof mem);
+    rt_patch_switch(set, 1);
+    rt_log("resolution: %ux%u; render target memory %u MiB, application pool +%llu MiB", SV.w, SV.h, mem >> 20,
+           (unsigned long long)(sv_res_extra_bytes() >> 20));
+}
 
 // TOTK_TEX_HEAP_EXTRA_MB (0 to 4096): more room in "TextureHeap" and its parent "ゲームグラフィックス", the heap the
 // world's textures stream into. HD texture packs made for emulators with 8 GB of DRAM grow it by about 3.3 GiB in their
@@ -468,6 +540,10 @@ static void res_shadow_range(void) {
 }
 
 void res_init(void) {
+    if (RT_SV) {
+        sv_res_init();
+        return;
+    }
     res_shadow_range();
     if (!bigger()) {
         rt_log("resolution: the game's own (output 1920x1080, scene 1600x900)");
