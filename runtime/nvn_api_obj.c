@@ -72,14 +72,18 @@ NVN_API(nvnTextureBuilderSetSize1D) {
     b->d.width = (uint32_t)arg_x(c, 1);
     b->d.height = b->d.depth = 1;
 }
-// TOTK_LOG_TEX_SIZE=<w>x<h> (log_tex_size, a diagnostic): each distinct guest call chain that sets a 2D texture of
-// that size is logged once, the caller and up to 8 frames of the frame-pointer chain, to find the code that decides
-// the size of the game's screen-sized render targets.
-static void log_tex_size(const Cpu *c, uint32_t w, uint32_t h) {
-    static int on = -1;
+// TOTK_LOG_TEX_SIZE=<w>x<h> or fmt:<NVN format, hex> (log_tex_size, a diagnostic): each distinct guest call chain and size
+// that initializes a texture of that width and height, or of that format at any size (any type, however its builder was
+// filled), is logged once, the caller and up to 8 frames of the frame-pointer chain, to find the code that decides the
+// size of the game's render targets.
+static void log_tex_size(const Cpu *c, uint32_t w, uint32_t h, int fmt) {
+    static int on = -1, want_fmt = -1;
     static uint32_t want_w, want_h;
-    if (on < 0) on = sscanf(cfg_value("TOTK_LOG_TEX_SIZE"), "%ux%u", &want_w, &want_h) == 2;
-    if (!on || w != want_w || h != want_h) return;
+    if (on < 0) {
+        const char *v = cfg_value("TOTK_LOG_TEX_SIZE");
+        on = sscanf(v, "%ux%u", &want_w, &want_h) == 2 || sscanf(v, "fmt:%x", (unsigned *)&want_fmt) == 1;
+    }
+    if (!on || (want_fmt >= 0 ? fmt != want_fmt : w != want_w || h != want_h)) return;
     uint64_t lr[9] = {c->x[30]}, fp = c->x[29];
     int n = 1;
     for (; n < 9 && fp && !(fp & 7) && plat_mem_readable(fp, 16); n++) {
@@ -88,7 +92,7 @@ static void log_tex_size(const Cpu *c, uint32_t w, uint32_t h) {
         if (next <= fp || next - fp > (64u << 20)) { n++; break; }
         fp = next;
     }
-    uint64_t key = 0xcbf29ce484222325ull;
+    uint64_t key = (0xcbf29ce484222325ull ^ ((uint64_t)w << 32 | h)) * 0x100000001b3ull;   // a size per chain
     for (int i = 0; i < n; i++) key = (key ^ lr[i]) * 0x100000001b3ull;
     static uint64_t seen[64];
     static int nseen;
@@ -97,16 +101,12 @@ static void log_tex_size(const Cpu *c, uint32_t w, uint32_t h) {
     if (nseen == 64) return;
     seen[nseen++] = key;
     char d[160];
-    rt_log("tex size %ux%u: set from %s", w, h, ldr_describe(lr[0], d, sizeof d));
+    rt_log("tex size %ux%u format %#x: set from %s", w, h, (unsigned)fmt, ldr_describe(lr[0], d, sizeof d));
     for (int i = 1; i < n; i++) rt_log("tex size   frame %d: %s", i, ldr_describe(lr[i], d, sizeof d));
 }
-NVN_API(nvnTextureBuilderSetHeight) {
-    TB(c)->d.height = (uint32_t)arg_x(c, 1);
-    log_tex_size(c, TB(c)->d.width, TB(c)->d.height);
-}
+NVN_API(nvnTextureBuilderSetHeight) { TB(c)->d.height = (uint32_t)arg_x(c, 1); }
 NVN_API(nvnTextureBuilderSetSize2D) {
     tex_builder_t *b = TB(c);
-    log_tex_size(c, (uint32_t)arg_x(c, 1), (uint32_t)arg_x(c, 2));
     b->d.width = (uint32_t)arg_x(c, 1);
     b->d.height = (uint32_t)arg_x(c, 2);
     b->d.depth = 1;
@@ -231,6 +231,7 @@ NVN_API(nvnTextureInitialize) {
     memset(o, 0, sizeof *o);
     o->magic = NVN_TEX_MAGIC;
     o->d = s->d;
+    log_tex_size(c, o->d.width, o->d.height, o->d.format);
     o->pool = s->pool;
     o->pool_flags = s->pool ? (uint16_t)s->pool->flags : 0;
     o->off = s->off;
