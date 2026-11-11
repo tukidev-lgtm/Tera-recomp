@@ -9,9 +9,12 @@
 // own blocks back once the gamepad is used. Our masks (prompt_icons_art.h, tools/make_prompt_icons.py) are drawn for
 // the port; only hashes of the game's are kept here.
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "cfg.h"
+#include "host.h"
+#include "platform/platform.h"
 #include "prompt_icons.h"
 #include "prompt_icons_art.h"
 
@@ -94,4 +97,23 @@ void prompt_icon_bc4(int art, uint32_t w, uint32_t h, uint8_t *out) {
             }
             bc4_block(v, out + (by * bw + bx) * 8);
         }
+}
+
+// The masks the survey wrote, by hash: each goes to disk once per run.
+void prompt_icon_survey(const uint8_t *blocks, size_t n, uint32_t w, uint32_t h) {
+    static int on = -1, nseen;
+    static uint64_t seen[4096];
+    if (on < 0) {
+        on = cfg_bool("TOTK_PROMPT_SURVEY");
+        if (on) plat_file_mkdir_p("dump/icons"), rt_log("prompts: survey on: unknown icon masks go to dump/icons");
+    }
+    if (!on) return;
+    uint64_t x = fnv(blocks, n);
+    for (int i = 0; i < nseen; i++)
+        if (seen[i] == x) return;
+    if (nseen == 4096) return;
+    seen[nseen++] = x;
+    char path[96];
+    snprintf(path, sizeof path, "dump/icons/%016llx_%ux%u.bin", (unsigned long long)x, w, h);
+    plat_file_write(path, blocks, n);
 }

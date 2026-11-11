@@ -1179,7 +1179,9 @@ static void icon_check(Tex *e) {
     }
     uint32_t rb = d->width / 4 * 8, n = rb * (d->height / 4);
     uint8_t buf[64 / 4 * 8 * (64 / 4)];
-    int art = nvn_deswizzle(d, 0, 0, e->t.mem, buf, rb) ? -1 : prompt_icon_match(buf, n, d->width, d->height);
+    if (nvn_deswizzle(d, 0, 0, e->t.mem, buf, rb)) return;
+    int art = prompt_icon_match(buf, n, d->width, d->height);
+    if (art < 0) prompt_icon_survey(buf, n, d->width, d->height);
     icon_forget(e);
     if (art < 0 || nicons == ICON_MAX) return;
     uint8_t *orig = malloc(n);
