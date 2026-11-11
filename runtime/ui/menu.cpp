@@ -503,14 +503,19 @@ static void row_output_res(void) {
                                        "1920x1280", "2160x1440", "2256x1504", "2880x1920", "3000x2000"};
     enum { N = sizeof vals / sizeof *vals };
     char shown[N][32];
-    const char *names[N];
+    const char *names[N], *kept[N];
+    int n = 0;
     for (int i = 0; i < N; i++) {
         int w = 0, h = 0;
         sscanf(vals[i], "%dx%d", &w, &h);
-        snprintf(shown[i], sizeof shown[i], "%d × %d", w, h);   // U+00D7, the multiplication sign
-        names[i] = shown[i];
+        // Scarlet and Violet take 16:9 sizes only (resolution.c sv_decide): the first six.
+        if (rt_game_version >= 400 && i >= 6) break;
+        snprintf(shown[n], sizeof shown[n], "%d × %d", w, h);   // U+00D7, the multiplication sign
+        names[n] = shown[n];
+        kept[n++] = vals[i];
     }
-    opt_choice_list("TOTK_OUTPUT_RES", UI_MENU_OUTPUT_RES, vals, names, N, UI_MENU_OUTPUT_RES_DESC);
+    opt_choice_list("TOTK_OUTPUT_RES", UI_MENU_OUTPUT_RES, kept, names, n,
+                    rt_game_version >= 400 ? UI_MENU_OUTPUT_RES_SV_DESC : UI_MENU_OUTPUT_RES_DESC);
 }
 
 static void row_render_scale(void) {
