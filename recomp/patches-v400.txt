@@ -48,6 +48,9 @@ site restest main 16694bc 52a89e08 52a8a408
 site restest main 16694c4 52a890e8 52a89688
 site restest main 16696a0 52a89e08 52a8a408
 site restest main 16696a8 52a890e8 52a89688
+# The GPU memory for render targets (graphics config memorySize_CpuInvisible_GpuCached, which main+0x146e770 sets to
+# 268 MiB when the data says 320 MiB): 512 MiB.
+site restest main 146e770 52a21809 52a40009
 
 # Debugging trace points (runtime/tracepoint.c). Remove before a release build.
 # Boot: nnMain's init chain (main+0x11bcc84) calls the object's virtual main+0x14fd2d8, which locks a field of the
