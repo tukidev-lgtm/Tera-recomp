@@ -18,33 +18,39 @@ site fps60 main 2b7a858 39c08154 52800014
 
 # Resolution experiment: the engine config's defaults (screenWidth 1920, screenHeight 1080 at config +0x10 / +0x18,
 # built by main+0x146fde4 and on the stack at main+0x146e7b4 and main+0x146e818) set to 2560x1440.
-set restest TERA_RESTEST 0
-site restest main 146fe00 5280f008 52814008
-site restest main 146fe04 52808709 5280b409
-site restest main 146e7b4 5280f008 52814008
-site restest main 146e7b8 52808709 5280b409
-site restest main 146e818 5280f008 52814008
-site restest main 146e81c 52808709 5280b409
+# Each part of the resolution experiment is its own switch (TERA_R_*=1), so one build tests any mix.
+set rcfg TERA_R_CFG 0
+set rrta TERA_R_RTA 0
+set rrtb TERA_R_RTB 0
+set rrtc TERA_R_RTC 0
+set rctl TERA_R_CTL 0
+set rmem TERA_R_MEM 0
+site rcfg main 146fe00 5280f008 52814008
+site rcfg main 146fe04 52808709 5280b409
+site rcfg main 146e7b4 5280f008 52814008
+site rcfg main 146e7b8 52808709 5280b409
+site rcfg main 146e818 5280f008 52814008
+site rcfg main 146e81c 52808709 5280b409
 # The scene render targets with a fixed 1920x1080 in their description (passed to main+0x107e220, which creates them):
-site restest main 2635370 5280f00a 5281400a
-site restest main 2635374 5280870b 5280b40b
-site restest main 1664100 5280f009 52814009
-site restest main 16640f8 5280870a 5280b40a
-site restest main 14b0020 5280f008 52814008
-site restest main 14b0024 5280870a 5280b40a
+site rrta main 2635370 5280f00a 5281400a
+site rrta main 2635374 5280870b 5280b40b
+site rrtb main 1664100 5280f009 52814009
+site rrtb main 16640f8 5280870a 5280b40a
+site rrtc main 14b0020 5280f008 52814008
+site rrtc main 14b0024 5280870a 5280b40a
 # The render resolution controller (constructor main+0xbd6xxx, per frame main+0xdfa800): its base size at +0x430
 # {handheld, docked} widths and +0x438 heights, docked 1920x1080.
-site restest main bd7018 f2c0f008 f2c14008
-site restest main bd7024 f2c08708 f2c0b408
+site rctl main bd7018 f2c0f008 f2c14008
+site rctl main bd7024 f2c08708 f2c0b408
 # The scene's share of its render target (render size / 1920, / 1080) at main+0xd42930 and main+0x187be70.
-site restest main d42930 52a89e08 52a8a408
-site restest main d42940 52a890e8 52a89688
-site restest main 187be70 52a89e08 52a8a408
+site rctl main d42930 52a89e08 52a8a408
+site rctl main d42940 52a890e8 52a89688
+site rctl main 187be70 52a89e08 52a8a408
 # The window's size (main+0xbc5194) and the 1920x1080 viewport at main+0x16694bc stay: the UI lays itself out for the
 # window, and at 2560x1440 it overflowed the 1920x1080 output targets (the title screen and the map zoomed in).
 # The GPU memory for render targets (graphics config memorySize_CpuInvisible_GpuCached, which main+0x146e770 sets to
 # 268 MiB when the data says 320 MiB): 512 MiB.
-site restest main 146e770 52a21809 52a40009
+site rmem main 146e770 52a21809 52a40009
 
 # Debugging trace points (runtime/tracepoint.c). Remove before a release build.
 # Boot: nnMain's init chain (main+0x11bcc84) calls the object's virtual main+0x14fd2d8, which locks a field of the
