@@ -4,7 +4,9 @@
 // address and the stack pointer. Each point logs its first TERA_TRACE_LIMIT passes (default 16), so a point inside a loop does not flood
 // the log. It reads registers only; the game runs on unchanged.
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "cfg.h"
 #include "host.h"
@@ -27,6 +29,57 @@ static int text_at(uint64_t a, char *out, int cap) {
     out[n] = 0;
     return n >= 3 && (n == 96 || b[n] == 0);
 }
+// TERA_TRACE_DUMP=<point>:x<reg> (debugging): at each pass of that point (named as the log names it, sdk+0x18de08),
+// the memory x<reg> points at goes to dump/trace_<pass>.bin. A TrueType/OpenType font or collection is written whole
+// (its size from its table directory); anything else as 1 MiB. For reading game data the game builds at run time.
+static uint32_t be32(const uint8_t *p) { return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3]; }
+
+static uint64_t font_end(uint64_t a, uint64_t off) {   // end of the sfnt at a + off, 0 if it is not one
+    uint8_t h[12];
+    if (!plat_mem_read(a + off, h, sizeof h)) return 0;
+    uint32_t tag = be32(h), n = (uint32_t)h[4] << 8 | h[5];
+    if ((tag != 0x00010000 && tag != 0x4f54544f && tag != 0x74727565) || !n || n > 64) return 0;
+    uint64_t end = off + 12 + 16ull * n;
+    for (uint32_t i = 0; i < n; i++) {
+        uint8_t r[16];
+        if (!plat_mem_read(a + off + 12 + 16ull * i, r, sizeof r)) return 0;
+        uint64_t e = (uint64_t)be32(r + 8) + be32(r + 12);
+        if (e > end) end = e;
+    }
+    return end;
+}
+
+static void trace_dump(Cpu *c, const char *at, uint32_t n) {
+    const char *v = cfg_get("TERA_TRACE_DUMP");
+    if (!v || !*v) return;
+    const char *colon = strrchr(v, ':');
+    if (!colon || colon[1] != 'x' || strncmp(at, v, (size_t)(colon - v)) || at[colon - v] != ' ') return;
+    int reg = atoi(colon + 2);
+    if (reg < 0 || reg > 30) return;
+    uint64_t a = c->x[reg], size = 0;
+    uint8_t h[12];
+    if (plat_mem_read(a, h, sizeof h) && be32(h) == 0x74746366) {   // 'ttcf': the end of its last font
+        uint32_t fonts = be32(h + 8);
+        for (uint32_t i = 0; i < fonts && i < 64; i++) {
+            uint8_t o[4];
+            if (!plat_mem_read(a + 12 + 4ull * i, o, 4)) break;
+            uint64_t e = font_end(a, be32(o));
+            if (e > size) size = e;
+        }
+    } else {
+        size = font_end(a, 0);
+    }
+    if (!size || size > (64u << 20)) size = 1u << 20;
+    uint8_t *buf = malloc(size);
+    if (!buf || !plat_mem_read(a, buf, size)) { free(buf); rt_log("trace: dump of %#llx failed", (unsigned long long)a); return; }
+    char path[64];
+    snprintf(path, sizeof path, "dump/trace_%u.bin", n);
+    plat_file_mkdir_p("dump");
+    if (!plat_file_write(path, buf, size)) rt_log("trace: cannot write %s", path);
+    else rt_log("trace: x%d %#llx: %llu bytes to %s", reg, (unsigned long long)a, (unsigned long long)size, path);
+    free(buf);
+}
+
 static uint64_t sleep_pc;
 static uint32_t sleep_ms;
 static int sleep_done;
@@ -82,6 +135,7 @@ void rt_trace_point(Cpu *c, uint64_t pc) {
            (unsigned long long)c->x[12], (unsigned long long)c->x[13], (unsigned long long)c->x[14],
            (unsigned long long)c->x[15], (unsigned long long)c->x[16], (unsigned long long)c->x[17],
            (unsigned long long)c->x[18]);
+    trace_dump(c, at, n);
     static const int text_regs[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28};
     for (unsigned k = 0; k < sizeof text_regs / sizeof *text_regs; k++) {
         char t[100];
