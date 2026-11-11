@@ -32,6 +32,14 @@ site restest main 1664100 5280f009 52814009
 site restest main 16640f8 5280870a 5280b40a
 site restest main 14b0020 5280f008 52814008
 site restest main 14b0024 5280870a 5280b40a
+# The render resolution controller (constructor main+0xbd6xxx, per frame main+0xdfa800): its base size at +0x430
+# {handheld, docked} widths and +0x438 heights, docked 1920x1080.
+site restest main bd7018 f2c0f008 f2c14008
+site restest main bd7024 f2c08708 f2c0b408
+# The scene's share of its render target (render size / 1920, / 1080) at main+0xd42930 and main+0x187be70.
+site restest main d42930 52a89e08 52a8a408
+site restest main d42940 52a890e8 52a89688
+site restest main 187be70 52a89e08 52a8a408
 
 # Debugging trace points (runtime/tracepoint.c). Remove before a release build.
 # Boot: nnMain's init chain (main+0x11bcc84) calls the object's virtual main+0x14fd2d8, which locks a field of the
