@@ -72,8 +72,8 @@ NVN_API(nvnTextureBuilderSetSize1D) {
     b->d.width = (uint32_t)arg_x(c, 1);
     b->d.height = b->d.depth = 1;
 }
-// TOTK_LOG_TEX_SIZE=<w>x<h> or fmt:<NVN format, hex> (log_tex_size, a diagnostic): each distinct guest call chain that
-// initializes a texture of that width and height, or of that format at any size (any type, however its builder was
+// TOTK_LOG_TEX_SIZE=<w>x<h> or fmt:<NVN format, hex> (log_tex_size, a diagnostic): each distinct guest call chain and size
+// that initializes a texture of that width and height, or of that format at any size (any type, however its builder was
 // filled), is logged once, the caller and up to 8 frames of the frame-pointer chain, to find the code that decides the
 // size of the game's render targets.
 static void log_tex_size(const Cpu *c, uint32_t w, uint32_t h, int fmt) {
@@ -92,7 +92,7 @@ static void log_tex_size(const Cpu *c, uint32_t w, uint32_t h, int fmt) {
         if (next <= fp || next - fp > (64u << 20)) { n++; break; }
         fp = next;
     }
-    uint64_t key = 0xcbf29ce484222325ull;
+    uint64_t key = (0xcbf29ce484222325ull ^ ((uint64_t)w << 32 | h)) * 0x100000001b3ull;   // a size per chain
     for (int i = 0; i < n; i++) key = (key ^ lr[i]) * 0x100000001b3ull;
     static uint64_t seen[64];
     static int nseen;
