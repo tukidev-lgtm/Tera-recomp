@@ -219,8 +219,8 @@ uint64_t res_heap_extra_bytes(void) {
 
 // ---- Scarlet and Violet (recomp/patches-v400.txt, set svres). The game draws at 1920x1080, a size written into its
 // code: the window (which sizes the swapchain and the output and UI targets), the render resolution controller's base
-// (the scene size, scaled down by the game's dynamic resolution), the scene render targets and the scene's share of
-// them. The set makes each read the size from the patch page, so the whole picture, the UI with it, is drawn at the
+// (the scene size, scaled down by the game's dynamic resolution), the scene render targets, the half-size ones and the
+// scene's share of them. The set makes each read the size from the patch page, so the whole picture, the UI with it, is drawn at the
 // asked size, and the present scales that to the window (gfx_present.c). The game's render targets come from one GPU
 // memory pool of 268 MiB, sized for 1080p: it grows with the pixel count, and the application pool with it.
 #define SV_RT_MEM (268ull << 20)
@@ -278,6 +278,8 @@ static void sv_res_init(void) {
     memcpy(page + 144, h64, sizeof h64);
     memcpy(page + 152, f, sizeof f);
     memcpy(page + 160, &mem, sizeof mem);
+    uint32_t half[2] = {SV.w / 2, SV.h / 2};
+    memcpy(page + 164, half, sizeof half);
     rt_patch_switch(set, 1);
     rt_log("resolution: %ux%u; render target memory %u MiB, application pool +%llu MiB", SV.w, SV.h, mem >> 20,
            (unsigned long long)(sv_res_extra_bytes() >> 20));

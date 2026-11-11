@@ -19,7 +19,8 @@ site fps60 main 2b7a858 39c08154 52800014
 # Game resolution (runtime/resolution.c sv_res_init, TOTK_OUTPUT_RES): the game draws at 1920x1080, a size written into
 # its code in several places, and set svres makes each of them read the patch page instead: +128 the width and +132
 # the height (u32), +136 {1280, width} and +144 {720, height} (the handheld and docked sizes, two u32 each), +152 the
-# width and +156 the height as floats, +160 the GPU memory for render targets in bytes (u32).
+# width and +156 the height as floats, +160 the GPU memory for render targets in bytes (u32), +164 half the width and
+# +168 half the height (u32).
 set svres TERA_SVRES 0
 # The window (described by main+0xbc51b0..0xbc528c, which also sizes the swapchain and the output and UI targets): its
 # size comes from the engine config's screenWidth / screenHeight (config +0x10 / +0x18), read at main+0xbc525c and
@@ -43,6 +44,23 @@ site svres main 1664100 5280f009 @page:x9 b9408129
 site svres main 16640f8 5280870a @page:x10 b940854a
 site svres main 14b0020 5280f008 @page:x8 b9408108
 site svres main 14b0024 5280870a @page:x10 b940854a
+# The half-size scene targets, a fixed 960x540 in their description (also created through main+0x107e220): at a larger
+# size they stayed 960x540 and the screen-space shadows read them at the wrong places (the shadows turned with the
+# camera). mov wN, #0x3c0 / #0x21c -> half the page's width / height.
+site svres main 1664240 52807808 @page:x8 b940a508
+site svres main 1664248 52804389 @page:x9 b940a929
+site svres main 2635c90 5280780a @page:x10 b940a54a
+site svres main 2635c94 5280438b @page:x11 b940a96b
+site svres main 2636298 5280780a @page:x10 b940a54a
+site svres main 263629c 5280438b @page:x11 b940a96b
+site svres main 116f498 5280780a @page:x10 b940a54a
+site svres main 116f49c 5280438b @page:x11 b940a96b
+site svres main 135d1e8 52807808 @page:x8 b940a508
+site svres main 135d1f0 52804388 @page:x8 b940a908
+site svres main 17d9e64 52807808 @page:x8 b940a508
+site svres main 17d9e68 5280438a @page:x10 b940a94a
+site svres main e939c4 5280780a @page:x10 b940a54a
+site svres main e939c8 5280438b @page:x11 b940a96b
 # The GPU memory the render targets come from (graphics config memorySize_CpuInvisible_GpuCached, which main+0x146e770
 # sets to 268 MiB when the data says 320 MiB): without more of it, a larger size runs out when the map opens.
 site svres main 146e770 52a21809 @page:x9 b940a129
