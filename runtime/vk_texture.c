@@ -1155,7 +1155,7 @@ static int upload_gpu(Tex *e) {
 // ---- keyboard and mouse button prompts (prompt_icons.c): the game's button masks, swapped with ours by device
 // A known mask is kept with a copy of its own blocks; shown says which blocks the image holds now (0 the game's, 1
 // ours). icons_sync, at every submit, writes the other ones when the device used last changed. Under the lock.
-typedef struct { Tex *e; uint8_t *orig; uint32_t n, w, h; int art, shown; } Icon;
+typedef struct { Tex *e; uint8_t *orig; uint32_t n, w, h; int icon, shown; } Icon;
 enum { ICON_MAX = 64 };
 static Icon icons[ICON_MAX];
 static int nicons;
@@ -1169,13 +1169,13 @@ static void icon_forget(Tex *e) {
         }
 }
 
-// After an upload: a small single-level BC4 texture whose blocks are a known mask is kept, holding the game's blocks.
-// TOTK_PROMPT_SURVEY: every small single-level texture of any format (the icons of other screens may be larger,
-// coloured or another BC format), level 0 deswizzled, named by its Vulkan format.
-static void icon_survey_any(Tex *e) {
+// TOTK_PROMPT_SURVEY=<side> (1: 128): every single-level 2D texture up to that many texels a side, of any format but
+// the masks below, level 0 deswizzled and named by its Vulkan format: the icons of other screens may be larger,
+// coloured or another BC format.
+static void icon_survey_any(Tex *e, uint32_t side) {
     const nvn_texdesc *d = &e->t.d;
     int bw, bh, bpb = nvn_fmt_bpb(d->format, &bw, &bh);
-    if (!bpb || d->width > 128 || d->height > 128 || e->pub.levels != 1 || e->pub.layers != 1 ||
+    if (!bpb || d->width > side || d->height > side || e->pub.levels != 1 || e->pub.layers != 1 ||
         e->pub.type != VK_IMAGE_TYPE_2D || e->f.astc_bw)
         return;
     uint32_t rb = (d->width + bw - 1) / bw * (uint32_t)bpb, n = rb * ((d->height + bh - 1) / bh);
@@ -1184,25 +1184,29 @@ static void icon_survey_any(Tex *e) {
     free(buf);
 }
 
+// After an upload: a small single-level BC4 or BC5 texture whose blocks are a known mask is kept, holding the game's
+// blocks (icons_sync puts ours in at the next submit when keyboard and mouse were used last).
 static void icon_check(Tex *e) {
     const nvn_texdesc *d = &e->t.d;
-    if (prompt_icon_surveying() && e->f.vk != VK_FORMAT_BC4_UNORM_BLOCK) icon_survey_any(e);
-    if (e->f.vk != VK_FORMAT_BC4_UNORM_BLOCK || d->width > 64 || d->height > 64 || d->width % 4 || d->height % 4 ||
-        e->pub.levels != 1 || e->pub.layers != 1 || !prompt_icons_enabled()) {
+    int mask = e->f.vk == VK_FORMAT_BC4_UNORM_BLOCK || e->f.vk == VK_FORMAT_BC5_UNORM_BLOCK;
+    uint32_t side = prompt_icon_surveying();
+    if (side && !mask) icon_survey_any(e, side);
+    if (!mask || d->width > 128 || d->height > 128 || d->width % 4 || d->height % 4 || e->pub.levels != 1 ||
+        e->pub.layers != 1 || !prompt_icons_enabled()) {
         icon_forget(e);
         return;
     }
-    uint32_t rb = d->width / 4 * 8, n = rb * (d->height / 4);
-    uint8_t buf[64 / 4 * 8 * (64 / 4)];
-    if (nvn_deswizzle(d, 0, 0, e->t.mem, buf, rb)) return;
-    int art = prompt_icon_match(buf, n, d->width, d->height);
-    if (art < 0) prompt_icon_survey(buf, n, d->width, d->height);
+    uint32_t rb = d->width / 4 * (e->f.vk == VK_FORMAT_BC5_UNORM_BLOCK ? 16 : 8), n = rb * (d->height / 4);
+    uint8_t *buf = malloc(n);
+    if (!buf) return;
+    int icon = nvn_deswizzle(d, 0, 0, e->t.mem, buf, rb) ? -1 : prompt_icon_match(buf, n, d->width, d->height, e->f.vk);
+    if (icon < 0 && side) prompt_icon_survey_fmt(buf, n, d->width, d->height, e->f.vk);
     icon_forget(e);
-    if (art < 0 || nicons == ICON_MAX) return;
-    uint8_t *orig = malloc(n);
-    if (!orig) return;
-    memcpy(orig, buf, n);
-    icons[nicons++] = (Icon){e, orig, n, d->width, d->height, art, 0};
+    if (icon < 0 || nicons == ICON_MAX || prompt_icon_bytes(icon) != n) {
+        free(buf);
+        return;
+    }
+    icons[nicons++] = (Icon){e, buf, n, d->width, d->height, icon, 0};
     static int logged;
     if (!logged) logged = 1, rt_log("prompts: the game's button icons are known: keyboard and mouse ones follow the device");
 }
@@ -1217,7 +1221,7 @@ static void icons_sync(void) {
         VkBuffer sb;
         VkCommandBuffer cb = vk_upload_begin();
         uint8_t *stg = vk_staging(c->n, &sb, NULL);
-        if (want) prompt_icon_bc4(c->art, c->w, c->h, stg);
+        if (want) prompt_icon_encode(c->icon, stg);
         else memcpy(stg, c->orig, c->n);
         VkBufferImageCopy r = {.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, .imageExtent = {c->w, c->h, 1}};
         barrier(cb, ALL_RW, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
