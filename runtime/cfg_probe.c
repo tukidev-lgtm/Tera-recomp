@@ -221,9 +221,25 @@ int probe_cfg(void) {
     CHECK(rumble_motor(0.25f, 1, 1) > 16000 && rumble_motor(0.25f, 1, 1) < 16800, "rumble: curve 1, strength 100% is linear");
     CHECK(rumble_motor(0.1f, 0.6f, 1.3f) > rumble_motor(0.1f, 1, 1.3f), "rumble: curve lifts weak values");
     CHECK(rumble_motor(0.3f, 0.6f, 1.3f) > rumble_motor(0.3f, 0.6f, 1), "rumble: strength scales");
-    // Keyboard and mouse bindings (input_map.c)
+    // Keyboard and mouse bindings (input_map.c): Scarlet/Violet's defaults, then TotK's for the rest of the checks
     uint8_t dn[KEY_COUNT] = {0};
     int32_t st[2];
+    input_map_select_defaults(1);
+    input_map_reset();
+    dn[KEY_MOUSE_L] = dn[KEY_MOUSE_R] = 1;
+    CHECK(input_map_buttons(dn) == (1ull << B_ZR | 1ull << B_ZL), "keys sv: left mouse button ZR, right ZL");
+    memset(dn, 0, sizeof dn);
+    dn[KEY_E] = dn[KEY_Q] = dn[KEY_TAB] = dn[KEY_SPACE] = dn[KEY_R] = dn[KEY_LSHIFT] = dn[KEY_UP] = 1;
+    CHECK(input_map_buttons(dn) == (1ull << B_A | 1ull << B_B | 1ull << B_X | 1ull << B_Y | 1ull << B_PLUS |
+                                    1ull << B_STICK_L | 1ull << B_UP),
+          "keys sv: E A, Q B, Tab X, Space Y, R Plus, Left Shift stick click, Up D-pad up");
+    memset(dn, 0, sizeof dn);
+    dn[KEY_W] = 1;
+    input_map_stick(dn, 0, st);
+    CHECK(st[0] == 0 && st[1] == 32767, "keys sv: W is left stick up");
+    memset(dn, 0, sizeof dn);
+    input_map_select_defaults(0);
+    input_map_reset();
     CHECK(input_map_buttons(dn) == 0, "keys: nothing held, no buttons");
     dn[KEY_MOUSE_L] = 1;
     CHECK(input_map_buttons(dn) == 1ull << B_Y, "keys: left mouse button is Y");
@@ -409,6 +425,8 @@ int probe_cfg(void) {
     input_map_set_key(&mp, B_SL_UP, 0, KEY_NONE);
     input_map_line(&mp, B_SL_UP, line, sizeof line);
     CHECK(!strcmp(line, "none"), "edit: a stick direction without keys is none");
+    input_map_select_defaults(-1);   // the game's own defaults again
+    input_map_reset();
     // defaults live in the CfgMeta table: cfg_value and the typed accessors fall back to it
     cfg_load("cfg-probe-missing.ini");
     plat_setenv("TOTK_FPS60", NULL);

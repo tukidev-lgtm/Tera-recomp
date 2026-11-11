@@ -10,6 +10,31 @@ Input comes from the first SDL3 gamepad, the keyboard and the mouse, merged into
 
 The log names the layout in effect (`input: gamepad layout ...`); the menu shows it under *Automatic*. Which controller's buttons the game's prompts show is `TOTK_PROMPTS` (see Xbox button prompts below). 0.1.9's `pad_layout = xbox_prompts` is read as `pad_layout = nintendo` with `prompts = xbox`, and the menu writes it that way.
 
+### Scarlet and Violet
+
+A Scarlet or Violet build (`RT_SV`) starts from its own keyboard and mouse defaults (`SV_KEYS` in `runtime/input_map.c`); the gamepad is the same as below. The mouse turns the camera through the right stick (`mouse_mode = direct` needs camera hooks that only TotK has, so the stick path is used), and the menus take no pointer.
+
+| Switch | Keyboard and mouse | Action in the world |
+|---|---|---|
+| Left stick | W A S D | move |
+| Left stick click | Left Shift | run |
+| Right stick | mouse | camera |
+| Right stick click | middle mouse button, V | |
+| A | E, Enter | interact, talk, confirm |
+| B | Q, Backspace | cancel, go back; dash while riding |
+| X | Tab | main menu |
+| Y | Space | jump while riding |
+| ZL | right mouse button | focus on a nearby target |
+| ZR | left mouse button | hold to aim, release to throw a Poké Ball or send out a Pokémon |
+| L, R | Z, C | switch item or Pokémon |
+| Plus | R | ride |
+| Minus | M | |
+| D-pad left, up, right, down | arrow keys, 1 2 3 4 | shortcuts in battles and menus |
+
+Any of them can be changed on the Controls tab or with a `bind_` line (Remapping, below).
+
+### Tears of the Kingdom
+
 | Switch | Gamepad (by position, Nintendo layout) | Keyboard and mouse | Action in the world |
 |---|---|---|---|
 | Left stick | left stick | W A S D | move |

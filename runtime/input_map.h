@@ -67,6 +67,7 @@ typedef struct InputMap {
 extern InputMap input_map;
 
 void input_map_reset(void);
+void input_map_select_defaults(int sv);   // the default bindings: 1 Scarlet/Violet, 0 TotK, -1 by the game (probes)
 // The script and totk.ini names, any case when parsed; NULL for an id without one. Actions: A B X Y LCLICK RCLICK L R ZL
 // ZR PLUS MINUS LEFT UP RIGHT DOWN, then LSTICK_LEFT LSTICK_UP LSTICK_RIGHT LSTICK_DOWN and the same for RSTICK (the
 // stick directions the keys drive), then SHAKE. Keys: a-z 0-9 space tab lshift ... (key_names in input_map.c). Pads: south east ...

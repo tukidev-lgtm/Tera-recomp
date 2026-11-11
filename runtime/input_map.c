@@ -31,11 +31,28 @@
     {PAD_ZR, B_ZR}
 #define NINTENDO_PADS DEFAULT_PADS(B_B, B_A, B_Y, B_X)
 #define XBOX_PADS DEFAULT_PADS(B_A, B_B, B_X, B_Y)
-enum { DEFAULT_KEY_COUNT = 28, DEFAULT_PAD_COUNT = 16 };
+// Scarlet/Violet (docs/controls.md): ZR aims and throws a Poke Ball and ZL locks on, so they take the mouse buttons;
+// X opens the menu (Tab), + mounts the ride (R), Y jumps while riding (Space), L and R switch item or Pokemon (Z, C);
+// the left stick's click runs (Left Shift); the arrows are the D-pad, which battles' menus use.
+#define SV_KEYS \
+    {KEY_W, B_SL_UP}, {KEY_A, B_SL_LEFT}, {KEY_S, B_SL_DOWN}, {KEY_D, B_SL_RIGHT},                  /* move */ \
+    {KEY_MOUSE_L, B_ZR}, {KEY_MOUSE_R, B_ZL}, {KEY_E, B_A}, {KEY_ENTER, B_A}, {KEY_Q, B_B}, {KEY_BACKSPACE, B_B}, \
+    {KEY_TAB, B_X}, {KEY_SPACE, B_Y}, {KEY_Z, B_L}, {KEY_C, B_R}, {KEY_R, B_PLUS}, {KEY_M, B_MINUS}, \
+    {KEY_LSHIFT, B_STICK_L}, {KEY_MOUSE_M, B_STICK_R}, {KEY_V, B_STICK_R}, \
+    {KEY_LEFT, B_LEFT}, {KEY_UP, B_UP}, {KEY_RIGHT, B_RIGHT}, {KEY_DOWN, B_DOWN}, \
+    {KEY_1, B_LEFT}, {KEY_2, B_UP}, {KEY_3, B_RIGHT}, {KEY_4, B_DOWN}
+enum { DEFAULT_KEY_COUNT = 28, SV_KEY_COUNT = 27, DEFAULT_PAD_COUNT = 16 };
 _Static_assert(sizeof (Binding[]){DEFAULT_KEYS} / sizeof (Binding) == DEFAULT_KEY_COUNT, "DEFAULT_KEY_COUNT");
+_Static_assert(sizeof (Binding[]){SV_KEYS} / sizeof (Binding) == SV_KEY_COUNT, "SV_KEY_COUNT");
 
-static const InputMap defaults = {{DEFAULT_KEYS}, DEFAULT_KEY_COUNT, {{NINTENDO_PADS}, {XBOX_PADS}},
-                                  {DEFAULT_PAD_COUNT, DEFAULT_PAD_COUNT}};
+static const InputMap defaults_totk = {{DEFAULT_KEYS}, DEFAULT_KEY_COUNT, {{NINTENDO_PADS}, {XBOX_PADS}},
+                                       {DEFAULT_PAD_COUNT, DEFAULT_PAD_COUNT}};
+static const InputMap defaults_sv = {{SV_KEYS}, SV_KEY_COUNT, {{NINTENDO_PADS}, {XBOX_PADS}},
+                                     {DEFAULT_PAD_COUNT, DEFAULT_PAD_COUNT}};
+static int use_sv = -1;   // -1: by the game (RT_SV), else input_map_select_defaults'
+#define defaults (*((use_sv < 0 ? RT_SV : use_sv) ? &defaults_sv : &defaults_totk))
+
+void input_map_select_defaults(int sv) { use_sv = sv; }
 InputMap input_map = {{DEFAULT_KEYS}, DEFAULT_KEY_COUNT, {{NINTENDO_PADS}, {XBOX_PADS}},
                       {DEFAULT_PAD_COUNT, DEFAULT_PAD_COUNT}};
 
