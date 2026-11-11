@@ -225,7 +225,7 @@ uint64_t res_heap_extra_bytes(void) {
 // memory pool of 268 MiB, sized for 1080p: it grows with the pixel count, and the application pool with it.
 #define SV_RT_MEM (268ull << 20)
 
-static struct { int decided; unsigned w, h; float drs; } SV;
+static struct { int decided; unsigned w, h, shadow; float drs; } SV;
 
 // TOTK_OUTPUT_RES, 16:9 only (the game's camera and layouts are 16:9; another shape takes the largest 16:9 size inside
 // it), 1280x720 to 7680x4320.
@@ -255,6 +255,10 @@ static void sv_decide(void) {
     if (pct < 25 || pct > 400) pct = 100;
     SV.drs = 1;
     if (pct < 100) SV.drs = pct / 100.0f;
+    // TOTK_SHADOW_RES: the sun shadow map's side (set svshadow), 0 the game's own (1024 or 2048 by place)
+    const char *sr = cfg_value("TOTK_SHADOW_RES");
+    int side = !strcmp(sr, "game") ? 0 : atoi(sr);
+    SV.shadow = side >= 512 && side <= 4096 ? (unsigned)side & ~7u : 0;
     if (pct > 100) {
         double k = pct / 100.0, kmax = fmin(7680.0 / SV.w, 4320.0 / SV.h);
         if (k > kmax) k = kmax;
@@ -262,19 +266,21 @@ static void sv_decide(void) {
     }
 }
 
-// The render target pool for the size: 268 MiB times the pixels over 1920x1080, in whole MiB, never less.
+// The render target pool for the size: 268 MiB times the pixels over 1920x1080 (never less), and with a shadow map size
+// of our own, room for 4 cascades of it in 32-bit depth, in whole MiB.
 static uint64_t sv_rt_mem(void) {
     sv_decide();
     uint64_t px = (uint64_t)SV.w * SV.h, base = (uint64_t)BASE_W * BASE_H;
-    if (px <= base) return SV_RT_MEM;
-    return ((SV_RT_MEM * px / base) + 0xfffff) & ~0xfffffull;
+    uint64_t mem = px <= base ? SV_RT_MEM : SV_RT_MEM * px / base;
+    if (SV.shadow) mem += 4ull * 4 * SV.shadow * SV.shadow;
+    return (mem + 0xfffff) & ~0xfffffull;
 }
 
 static uint64_t sv_res_extra_bytes(void) { return ((sv_rt_mem() - SV_RT_MEM) + 0x1fffff) & ~0x1fffffull; }
 
 static void sv_res_init(void) {
     sv_decide();
-    if (SV.w == BASE_W && SV.h == BASE_H && SV.drs == 1) {
+    if (SV.w == BASE_W && SV.h == BASE_H && SV.drs == 1 && !SV.shadow) {
         rt_log("resolution: the game's own, 1920x1080");
         return;
     }
@@ -294,9 +300,14 @@ static void sv_res_init(void) {
     uint32_t half[2] = {SV.w / 2, SV.h / 2};
     memcpy(page + 164, half, sizeof half);
     memcpy(page + 172, &SV.drs, sizeof SV.drs);
+    memcpy(page + 176, &SV.shadow, sizeof SV.shadow);
     rt_patch_switch(set, 1);
-    rt_log("resolution: %ux%u, 3D scene at %.0f%%; render target memory %u MiB, application pool +%llu MiB", SV.w, SV.h,
-           SV.drs * 100.0, mem >> 20, (unsigned long long)(sv_res_extra_bytes() >> 20));
+    int shadow = rt_patch_set("svshadow");
+    if (SV.shadow && shadow >= 0) rt_patch_switch(shadow, 1);
+    char sh[16] = "the game's";
+    if (SV.shadow) snprintf(sh, sizeof sh, "%u", SV.shadow);
+    rt_log("resolution: %ux%u, 3D scene at %.0f%%, sun shadow map %s; render target memory %u MiB, application pool "
+           "+%llu MiB", SV.w, SV.h, SV.drs * 100.0, sh, mem >> 20, (unsigned long long)(sv_res_extra_bytes() >> 20));
 }
 
 // TOTK_TEX_HEAP_EXTRA_MB (0 to 4096): more room in "TextureHeap" and its parent "ゲームグラフィックス", the heap the

@@ -532,12 +532,17 @@ static void row_render_scale(void) {
 }
 
 static void row_shadow_res(void) {
-    static const char *const vals[] = {"game", "256", "512", "768", "1024", "1536", "2048"};
-    enum { N = sizeof vals / sizeof *vals };
-    const char *names[N];
+    static const char *const totk[] = {"game", "256", "512", "768", "1024", "1536", "2048"};
+    // Scarlet and Violet (resolution.c sv_res_init): from its smallest own size up
+    static const char *const sv[] = {"game", "1024", "1536", "2048", "3072", "4096"};
+    int is_sv = rt_game_version >= 400;
+    const char *const *vals = is_sv ? sv : totk;
+    int n = is_sv ? (int)(sizeof sv / sizeof *sv) : (int)(sizeof totk / sizeof *totk);
+    const char *names[8];
     names[0] = menu_text(UI_MENU_SHADOW_RES_GAME);
-    for (int i = 1; i < N; i++) names[i] = vals[i];
-    opt_choice_list("TOTK_SHADOW_RES", UI_MENU_SHADOW_RES, vals, names, N, UI_MENU_SHADOW_RES_DESC);
+    for (int i = 1; i < n; i++) names[i] = vals[i];
+    opt_choice_list("TOTK_SHADOW_RES", UI_MENU_SHADOW_RES, vals, names, n,
+                    is_sv ? UI_MENU_SHADOW_RES_SV_DESC : UI_MENU_SHADOW_RES_DESC);
 }
 
 static void row_shadow_scale(void) {

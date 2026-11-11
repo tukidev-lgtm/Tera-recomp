@@ -20,8 +20,10 @@ site fps60 main 2b7a858 39c08154 52800014
 # its code in several places, and set svres makes each of them read the patch page instead: +128 the width and +132
 # the height (u32), +136 {1280, width} and +144 {720, height} (the handheld and docked sizes, two u32 each), +152 the
 # width and +156 the height as floats, +160 the GPU memory for render targets in bytes (u32), +164 half the width and
-# +168 half the height (u32), +172 the render scale (float, at most 1).
+# +168 half the height (u32), +172 the render scale (float, at most 1), +176 the
+# sun shadow map size (u32, set svshadow).
 set svres TERA_SVRES 0
+set svshadow TERA_SVSHADOW 0
 # The window (described by main+0xbc51b0..0xbc528c, which also sizes the swapchain and the output and UI targets): its
 # size comes from the engine config's screenWidth / screenHeight (config +0x10 / +0x18), read at main+0xbc525c and
 # main+0xbc5264. ldr x9, [x8, #0x10] / [x8, #0x18] -> the page's width / height.
@@ -69,6 +71,11 @@ site svres main 17d9e64 52807808 @page:x8 b940a508
 site svres main 17d9e68 5280438a @page:x10 b940a94a
 site svres main e939c4 5280780a @page:x10 b940a54a
 site svres main e939c8 5280438b @page:x11 b940a96b
+# The sun shadow map (TOTK_SHADOW_RES): the shadow renderer's constructor (main+0x16d22c8) copies {cascades, size}
+# from its parameters to +0x3d0 / +0x3d4, and main+0x16dc200 creates the depth array from them (size x size, a layer per
+# cascade). str x10, [x19, #0x3d0] -> str w10, [x19, #0x3d0]; adrp x10, page; ldr w10, [x10, #0xb0];
+# str w10, [x19, #0x3d4]. x10 is free after.
+site svshadow main 16d22e4 f901ea6a b903d26a @page:x10 b940b14a b903d66a
 # The GPU memory the render targets come from (graphics config memorySize_CpuInvisible_GpuCached, which main+0x146e770
 # sets to 268 MiB when the data says 320 MiB): without more of it, a larger size runs out when the map opens.
 site svres main 146e770 52a21809 @page:x9 b940a129
