@@ -40,14 +40,10 @@ site restest main bd7024 f2c08708 f2c0b408
 site restest main d42930 52a89e08 52a8a408
 site restest main d42940 52a890e8 52a89688
 site restest main 187be70 52a89e08 52a8a408
-# The display: the window's size at main+0xbc5194 (the swapchain and the output targets sized from it) and a
-# viewport of 1920x1080 at main+0x16694bc / main+0x16696a0.
+# The window's size at main+0xbc5194 (the swapchain). The 1920x1080 viewport at main+0x16694bc / main+0x16696a0
+# belongs to the 1920x1080 output (the title screen zoomed in at 2560x1440) and stays.
 site restest main bc519c 5280f008 52814008
 site restest main bc5194 52808709 5280b409
-site restest main 16694bc 52a89e08 52a8a408
-site restest main 16694c4 52a890e8 52a89688
-site restest main 16696a0 52a89e08 52a8a408
-site restest main 16696a8 52a890e8 52a89688
 # The GPU memory for render targets (graphics config memorySize_CpuInvisible_GpuCached, which main+0x146e770 sets to
 # 268 MiB when the data says 320 MiB): 512 MiB.
 site restest main 146e770 52a21809 52a40009
