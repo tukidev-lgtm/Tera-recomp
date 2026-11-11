@@ -1,0 +1,39 @@
+--- a/src/Ryujinx.Graphics.Shader/CodeGen/Spirv/Instructions.cs
++++ b/src/Ryujinx.Graphics.Shader/CodeGen/Spirv/Instructions.cs
+@@ -863,9 +863,36 @@ namespace Ryujinx.Graphics.Shader.CodeGen.Spirv
+                 result = new OperationResult(AggregateType.FP32, context.FMul(f32, result.Value, factor));
+             }
+ 
++            if (result.Type == AggregateType.FP32 && IsDriverBaseInstance(context, operation) &&
++                context.Inputs.TryGetValue(new IoDefinition(StorageKind.Input, IoVariable.BaseInstance), out SpvInstruction baseInstance))
++            {
++                SpvInstruction value = context.Load(context.TypeS32(), baseInstance);
++                result = new OperationResult(AggregateType.FP32, context.Bitcast(context.TypeFP32(), value));
++            }
++
+             return result;
+         }
+ 
++        // Tera Recomp: the base instance of the draw. NVN vertex shaders add the driver's base instance, c0 byte 0x644
++        // (element 100 .y), to the instance index the translator makes zero-based (gl_InstanceIndex - gl_BaseInstance).
++        // NVN's driver writes that word for every draw, an indirect one too, from its arguments in GPU memory; the host
++        // fills c0 from the CPU and cannot know the arguments of an indirect draw (runtime/vk_exec_draw.c
++        // op_draw_idx_ind), so the GPU-culled instances (Scarlet's trees and rocks) all read the first instance range.
++        // A vertex shader that also reads gl_BaseInstance takes that instead: Vulkan's firstInstance, which the host sets
++        // to the draw's base instance for direct draws and the GPU reads from the arguments for indirect ones.
++        private static bool IsDriverBaseInstance(CodeGenContext context, AstOperation load)
++        {
++            return context.Definitions.Stage == ShaderStage.Vertex &&
++                   load.StorageKind == StorageKind.ConstantBuffer &&
++                   load.SourcesCount == 4 &&
++                   load.GetSource(0) is AstOperand { Type: OperandType.Constant } binding &&
++                   load.GetSource(1) is AstOperand { Type: OperandType.Constant, Value: 0 } &&
++                   load.GetSource(2) is AstOperand { Type: OperandType.Constant, Value: 0x644 / 16 } &&
++                   load.GetSource(3) is AstOperand { Type: OperandType.Constant, Value: (0x644 % 16) / 4 } &&
++                   context.Properties.ConstantBuffers.TryGetValue(binding.Value, out BufferDefinition buffer) &&
++                   buffer.Name.EndsWith("_c0");
++        }
++
+         // TOTK: the spread of the sun shadow filter. The deferred lighting shaders take the sun shadow as four compares
+         // at the receiver ± h on the cascade map, h = 0.5 * c[56].xy (UV) of their lighting block (fp_c9, or fp_c5 in
+         // some), the same in every cascade. In the near cascade the map is sharp enough that the four copies of an edge
