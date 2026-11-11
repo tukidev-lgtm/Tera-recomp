@@ -110,6 +110,23 @@ static int gpu_timing_replay(void) {
     return on;
 }
 
+// TOTK_DYNAMIC_RES=max (dynamic_res, the menu's Dynamic resolution row): Scarlet scales its scene down (to 1920x864 at 1080p)
+// when the GPU time it measures between its frame's top-of-pipe timestamp (TIMESTAMP_TOP, at the frame's start) and its
+// end-of-pipe one (TIMESTAMP) nears the frame's budget. Those reports land when the completion thread sees their
+// submission done, so they also hold the replay's own recording and waits, and the scale drops on a GPU with time to
+// spare. With max, a TIMESTAMP_TOP report takes the replay's time and the TIMESTAMP after it that time plus 1 ms: the
+// game sees a light GPU frame and keeps its full resolution, while the clock still follows real time. game (default)
+// keeps the measured times.
+static int dyn_res_max(void) { return !strcmp(cfg_value("TOTK_DYNAMIC_RES"), "max"); }
+
+static uint64_t max_res_time(uint32_t type) {
+    static uint64_t top, last;
+    uint64_t now = kern_now_ns(), t = type == NVN_COUNTER_TYPE_TIMESTAMP && top ? top + 1000000 : now;
+    if (type == NVN_COUNTER_TYPE_TIMESTAMP_TOP) top = now;
+    if (t <= last) t = last + 1;   // the clock never runs backwards
+    return last = t;
+}
+
 static void counter_cb(void *arg) {
     uint64_t *a = arg;   // {address, replay time in ns or 0}
     if (a[1]) {
@@ -317,7 +334,7 @@ static void report_counter(VkExec *ex, const p_report_counter *p) {
     else {
         uint64_t *a = malloc(2 * sizeof *a);
         if (!a) rt_fatal("vk: out of memory");
-        a[0] = p->addr, a[1] = gpu_timing_replay() ? kern_now_ns() : 0;
+        a[0] = p->addr, a[1] = dyn_res_max() ? max_res_time(p->type) : gpu_timing_replay() ? kern_now_ns() : 0;
         vk_completion_add(ex->fence, counter_cb, a);
     }
     pending[pending_head++ % PENDING] = (typeof(pending[0])){p->addr, ex->fence, samples};
