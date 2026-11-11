@@ -39,7 +39,7 @@
 #define MAX_PASSES 400
 #define PNG_CAP (2ull << 30)
 #define INFLIGHT_CAP (3ull << 30)   // host buffers waiting for their submission
-#define MAX_ENTS 48                 // distinct pipeline + texture sets listed per pass
+#define MAX_ENTS 512                // distinct pipeline + texture sets listed per pass (UI passes bind hundreds)
 #define MAX_LUTS 256                // 3D textures and small sampled 8-bit 2D textures dumped per frame
 #define TEX2D_CAP (1u << 20)        // texels of a sampled 2D texture that is dumped
 
