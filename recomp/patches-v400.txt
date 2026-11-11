@@ -40,10 +40,8 @@ site restest main bd7024 f2c08708 f2c0b408
 site restest main d42930 52a89e08 52a8a408
 site restest main d42940 52a890e8 52a89688
 site restest main 187be70 52a89e08 52a8a408
-# The window's size at main+0xbc5194 (the swapchain). The 1920x1080 viewport at main+0x16694bc / main+0x16696a0
-# belongs to the 1920x1080 output (the title screen zoomed in at 2560x1440) and stays.
-site restest main bc519c 5280f008 52814008
-site restest main bc5194 52808709 5280b409
+# The window's size (main+0xbc5194) and the 1920x1080 viewport at main+0x16694bc stay: the UI lays itself out for the
+# window, and at 2560x1440 it overflowed the 1920x1080 output targets (the title screen and the map zoomed in).
 # The GPU memory for render targets (graphics config memorySize_CpuInvisible_GpuCached, which main+0x146e770 sets to
 # 268 MiB when the data says 320 MiB): 512 MiB.
 site restest main 146e770 52a21809 52a40009
