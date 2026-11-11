@@ -25,6 +25,13 @@ site restest main 146e7b4 5280f008 52814008
 site restest main 146e7b8 52808709 5280b409
 site restest main 146e818 5280f008 52814008
 site restest main 146e81c 52808709 5280b409
+# The scene render targets with a fixed 1920x1080 in their description (passed to main+0x107e220, which creates them):
+site restest main 2635370 5280f00a 5281400a
+site restest main 2635374 5280870b 5280b40b
+site restest main 1664100 5280f009 52814009
+site restest main 16640f8 5280870a 5280b40a
+site restest main 14b0020 5280f008 52814008
+site restest main 14b0024 5280870a 5280b40a
 
 # Debugging trace points (runtime/tracepoint.c). Remove before a release build.
 # Boot: nnMain's init chain (main+0x11bcc84) calls the object's virtual main+0x14fd2d8, which locks a field of the
