@@ -72,9 +72,9 @@ NVN_API(nvnTextureBuilderSetSize1D) {
     b->d.width = (uint32_t)arg_x(c, 1);
     b->d.height = b->d.depth = 1;
 }
-// TOTK_LOG_TEX_SIZE=<w>x<h> (log_tex_size, a diagnostic): each distinct guest call chain that sets a 2D texture or
-// array (or a 3D texture) of that width and height is logged once, the caller and up to 8 frames of the frame-pointer
-// chain, to find the code that decides the size of the game's render targets.
+// TOTK_LOG_TEX_SIZE=<w>x<h> (log_tex_size, a diagnostic): each distinct guest call chain that initializes a texture of
+// that width and height (any type, however its builder was filled) is logged once, the caller and up to 8 frames of the
+// frame-pointer chain, to find the code that decides the size of the game's render targets.
 static void log_tex_size(const Cpu *c, uint32_t w, uint32_t h) {
     static int on = -1;
     static uint32_t want_w, want_h;
@@ -100,13 +100,9 @@ static void log_tex_size(const Cpu *c, uint32_t w, uint32_t h) {
     rt_log("tex size %ux%u: set from %s", w, h, ldr_describe(lr[0], d, sizeof d));
     for (int i = 1; i < n; i++) rt_log("tex size   frame %d: %s", i, ldr_describe(lr[i], d, sizeof d));
 }
-NVN_API(nvnTextureBuilderSetHeight) {
-    TB(c)->d.height = (uint32_t)arg_x(c, 1);
-    log_tex_size(c, TB(c)->d.width, TB(c)->d.height);
-}
+NVN_API(nvnTextureBuilderSetHeight) { TB(c)->d.height = (uint32_t)arg_x(c, 1); }
 NVN_API(nvnTextureBuilderSetSize2D) {
     tex_builder_t *b = TB(c);
-    log_tex_size(c, (uint32_t)arg_x(c, 1), (uint32_t)arg_x(c, 2));
     b->d.width = (uint32_t)arg_x(c, 1);
     b->d.height = (uint32_t)arg_x(c, 2);
     b->d.depth = 1;
@@ -116,7 +112,6 @@ NVN_API(nvnTextureBuilderSetSize3D) {
     b->d.width = (uint32_t)arg_x(c, 1);
     b->d.height = (uint32_t)arg_x(c, 2);
     b->d.depth = (uint32_t)arg_x(c, 3);
-    log_tex_size(c, b->d.width, b->d.height);
 }
 NVN_API(nvnTextureBuilderSetLevels) { TB(c)->d.levels = (uint32_t)arg_x(c, 1); }
 NVN_API(nvnTextureBuilderSetFormat) { TB(c)->d.format = (int)arg_x(c, 1); }
@@ -232,6 +227,7 @@ NVN_API(nvnTextureInitialize) {
     memset(o, 0, sizeof *o);
     o->magic = NVN_TEX_MAGIC;
     o->d = s->d;
+    log_tex_size(c, o->d.width, o->d.height);
     o->pool = s->pool;
     o->pool_flags = s->pool ? (uint16_t)s->pool->flags : 0;
     o->off = s->off;
