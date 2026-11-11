@@ -38,6 +38,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cfg.h"
 #include "host.h"
 #include "nvn_api.h"
 #include "nvn_tex.h"
@@ -97,10 +98,27 @@ static void write_counter(uint64_t addr, uint64_t counter) {
     memcpy((void *)(uintptr_t)addr, rec, sizeof rec);
 }
 
+// TOTK_GPU_TIMING=replay (a diagnostic): a counter report's timestamp is the time the replay records it rather than the
+// time the completion thread learns its submission finished, so the GPU durations the game measures between two reports
+// leave out the wait for the fence and the completion thread. counter_cb gets the address and that time.
+static int gpu_timing_replay(void) {
+    static int on = -1;
+    if (on < 0) {
+        on = !strcmp(cfg_value("TOTK_GPU_TIMING"), "replay");
+        if (on) rt_log("vk: TOTK_GPU_TIMING=replay: counter timestamps are taken when the replay records the report");
+    }
+    return on;
+}
+
 static void counter_cb(void *arg) {
-    uint64_t *addr = arg;
-    write_counter(*addr, 0);
-    free(addr);
+    uint64_t *a = arg;   // {address, replay time in ns or 0}
+    if (a[1]) {
+        uint64_t rec[2] = {0, (uint64_t)((unsigned __int128)a[1] * 12 / 625)};
+        memcpy((void *)(uintptr_t)a[0], rec, sizeof rec);
+    } else {
+        write_counter(a[0], 0);
+    }
+    free(a);
 }
 
 // Reports queued by the replay that the GPU has not finished. The condition of RENDER_COND reads a timestamp one as 0
@@ -202,6 +220,18 @@ void vk_exec_xfer_shutdown(void) {
     memset((void *)oq_busy, 0, sizeof oq_busy);
 }
 
+// TOTK_OCCLUSION=visible (a diagnostic): every samples-passed report adds 65536 to the count, so occlusion tests the game
+// runs with proxy draws never find their object hidden. It tells a culling fault in the replay's counts from one in the
+// game's own data.
+static int oq_all_visible(void) {
+    static int on = -1;
+    if (on < 0) {
+        on = !strcmp(cfg_value("TOTK_OCCLUSION"), "visible");
+        if (on) rt_log("vk: TOTK_OCCLUSION=visible: samples-passed reports always count an object as visible");
+    }
+    return on;
+}
+
 static void oq_cb(void *arg) {
     OqSegment *s = arg;
     VkDevice dev = vk_ctx()->device;
@@ -232,7 +262,7 @@ static void oq_cb(void *arg) {
     else {
         oq_count += sum;
         if (s->lost && !oq_count) oq_count = 1;
-        if (s->addr) write_counter(s->addr, oq_count);
+        if (s->addr) write_counter(s->addr, oq_all_visible() ? oq_count + 65536 : oq_count);
     }
     free(s);
 }
@@ -285,9 +315,9 @@ static void report_counter(VkExec *ex, const p_report_counter *p) {
     vk_mem_count(m.cls, VK_MUSE_GPU_WRITE, sizeof(NVNcounterData));
     if (samples) oq_report(ex, p->addr);
     else {
-        uint64_t *a = malloc(sizeof *a);
+        uint64_t *a = malloc(2 * sizeof *a);
         if (!a) rt_fatal("vk: out of memory");
-        *a = p->addr;
+        a[0] = p->addr, a[1] = gpu_timing_replay() ? kern_now_ns() : 0;
         vk_completion_add(ex->fence, counter_cb, a);
     }
     pending[pending_head++ % PENDING] = (typeof(pending[0])){p->addr, ex->fence, samples};

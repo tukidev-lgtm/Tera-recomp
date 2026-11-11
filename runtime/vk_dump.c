@@ -352,7 +352,7 @@ static const char *copy_out(VkExec *ex, VkImage image, VkFormat vf, VkImageAspec
 // bufs.txt gets the changed bytes' extent plus, with the grid arguments, one map per dword of the w x h records of
 // `stride` bytes at `off` (each record a letter: its value's index in the table under the map).
 
-static uint64_t bd_addr, bd_size, bd_off, bd_stride;
+static uint64_t bd_addr, bd_size, bd_off, bd_stride, bd_cs;   // bd_cs: TOTK_DUMP_BUF=cs:<hash>, see dump_setup
 static uint32_t bd_w, bd_h;
 static uint8_t *bd_prev;
 static FILE *bufs_f;
@@ -824,6 +824,19 @@ void vk_dump_dispatch(VkExec *ex, const GfxShader *cs, VkPipeline p, const VkPip
     }
     if (!pass_skip) flush_luts(ex, n);
     else nluts = 0;
+    if (bd_cs && !bd_size && bufs_f && shader_hash(cs) == bd_cs) {
+        // Every bound slot when they lie within 64 MiB of each other, else the first ones that do.
+        uint64_t lo = UINT64_MAX, hi = 0;
+        for (int k = 0; k < 16; k++) {
+            const p_bind_buf *sb = &ex->ssbo[5][k];   // 5: the NVN compute stage (vk_exec_draw.c NVN_STAGE_CS)
+            if (!sb->addr || !sb->size) continue;
+            fprintf(bufs_f, "cs slot %d: %#llx+%#llx\n", k, (unsigned long long)sb->addr, (unsigned long long)sb->size);
+            uint64_t l = sb->addr < lo ? sb->addr : lo, h = sb->addr + sb->size > hi ? sb->addr + sb->size : hi;
+            if (h - l <= (64ull << 20)) lo = l, hi = h;
+        }
+        if (hi > lo) bd_addr = lo, bd_size = hi - lo;
+        fprintf(bufs_f, "range %#llx+%#llx from pass %d\n", (unsigned long long)bd_addr, (unsigned long long)bd_size, n);
+    }
     buf_snap(ex, n);
     fflush(passes_f);
 out:
@@ -933,15 +946,23 @@ static void dump_setup(void) {
     const char *bf = cfg_get("TOTK_DUMP_BUF");
     if (bf && *bf) {
         char *q;
-        bd_addr = strtoull(bf, &q, 0);
-        if (*q == ':') bd_size = strtoull(q + 1, &q, 0);
-        if (*q == ':') bd_off = strtoull(q + 1, &q, 0);
-        if (*q == ':') bd_stride = strtoull(q + 1, &q, 0) & ~3ull;
-        if (*q == ':') bd_w = (uint32_t)strtoul(q + 1, &q, 0);
-        if (*q == ':') bd_h = (uint32_t)strtoul(q + 1, &q, 0);
-        if (!bd_w || !bd_h) bd_stride = 0;
-        snprintf(path, sizeof path, "%s/bufs.txt", dir);
-        if (bd_size && !(bufs_f = fopen(path, "w"))) bd_size = 0;
+        // cs:<shader hash>: the range spanning the storage buffers bound to the first dispatch of that compute shader
+        // (vk_dump_dispatch picks it), for buffers whose guest address changes from run to run.
+        if (!strncmp(bf, "cs:", 3)) {
+            bd_cs = strtoull(bf + 3, &q, 16), bd_addr = 0, bd_size = 0;
+            snprintf(path, sizeof path, "%s/bufs.txt", dir);
+            bufs_f = fopen(path, "w");
+        } else {
+            bd_addr = strtoull(bf, &q, 0);
+            if (*q == ':') bd_size = strtoull(q + 1, &q, 0);
+            if (*q == ':') bd_off = strtoull(q + 1, &q, 0);
+            if (*q == ':') bd_stride = strtoull(q + 1, &q, 0) & ~3ull;
+            if (*q == ':') bd_w = (uint32_t)strtoul(q + 1, &q, 0);
+            if (*q == ':') bd_h = (uint32_t)strtoul(q + 1, &q, 0);
+            if (!bd_w || !bd_h) bd_stride = 0;
+            snprintf(path, sizeof path, "%s/bufs.txt", dir);
+            if (bd_size && !(bufs_f = fopen(path, "w"))) bd_size = 0;
+        }
     }
     vk_dump_armed = 1;
     rt_log("vk_dump: frame %llu goes to %s", (unsigned long long)dump_frame, dir);

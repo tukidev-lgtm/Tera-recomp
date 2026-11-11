@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include "cfg.h"
+#include "dispatch.h"
 #include "gfx.h"
 #include "host.h"
 #include "nvn_api.h"
@@ -824,9 +825,22 @@ NVN_API(nvnCommandBufferSignalEvent) {
     *REC(cmd_of(c), OP_SIGNAL_EVENT, p_signal_event) = (p_signal_event){e->val, (uint32_t)arg_x(c, 2), (uint32_t)arg_x(c, 5)};
 }
 // void nvnCommandBufferResetCounter(NVNcommandBuffer *cmd, NVNcounterType type)
-NVN_API(nvnCommandBufferResetCounter) { REC(cmd_of(c), OP_RESET_COUNTER, p_reset_counter)->type = (uint32_t)arg_x(c, 1); }
+// Each counter type the game resets or reports is logged once with its caller: which ones a game relies on (occlusion
+// counts, timestamps) decides how much of the replay's counter support matters for it.
+static void log_counter_type(Cpu *c, const char *what, uint32_t type) {
+    static uint32_t seen[2];
+    uint32_t bit = type < 32 ? 1u << type : 0, *s = &seen[what[1] == 'e' && what[2] == 's'];
+    if (!bit || (__atomic_fetch_or(s, bit, __ATOMIC_RELAXED) & bit)) return;
+    char lr[64];
+    rt_log("nvn: %s counter type %u (from %s)", what, type, rt_guest_name(c->x[30], lr, sizeof lr));
+}
+NVN_API(nvnCommandBufferResetCounter) {
+    log_counter_type(c, "reset", (uint32_t)arg_x(c, 1));
+    REC(cmd_of(c), OP_RESET_COUNTER, p_reset_counter)->type = (uint32_t)arg_x(c, 1);
+}
 // void nvnCommandBufferReportCounter(NVNcommandBuffer *cmd, NVNcounterType type, NVNbufferAddress address)
 NVN_API(nvnCommandBufferReportCounter) {
+    log_counter_type(c, "report", (uint32_t)arg_x(c, 1));
     *REC(cmd_of(c), OP_REPORT_COUNTER, p_report_counter) = (p_report_counter){(uint32_t)arg_x(c, 1), arg_x(c, 2)};
 }
 // void nvnCommandBufferCopyBufferToBuffer(NVNcommandBuffer *cmd, NVNbufferAddress src, NVNbufferAddress dst,
@@ -1154,6 +1168,22 @@ NVN_API(nvnCommandBufferDrawElementsInstanced) {
 // NVNbufferAddress indices, NVNbufferAddress indirect): the arguments at indirect are often GPU-written, so the replay
 // draws with vkCmdDrawIndexedIndirect from the pool buffer (nxnative hle_nvn.c, SavageWindRecomp cmdbuf.c)
 NVN_API(nvnCommandBufferDrawElementsIndirect) {
+    {   // TOTK_LOG_INDIRECT=1 (a diagnostic): the first 48 distinct argument addresses, with the caller
+        static int on = -1, n;
+        static uint64_t seen[48];
+        if (on < 0) on = cfg_bool("TOTK_LOG_INDIRECT");
+        uint64_t a = arg_x(c, 4);
+        if (on && n < 48) {
+            int dup = 0;
+            for (int i = 0; i < n; i++) dup |= seen[i] == a;
+            if (!dup) {
+                char lr[64];
+                seen[n++] = a;
+                rt_log("nvn: DrawElementsIndirect args %#llx indices %#llx (from %s)", (unsigned long long)a,
+                       (unsigned long long)arg_x(c, 3), rt_guest_name(c->x[30], lr, sizeof lr));
+            }
+        }
+    }
     *REC(cmd_of(c), OP_DRAW_IDX_IND, p_draw_idx_ind) = (p_draw_idx_ind){(int)arg_x(c, 1), (int)arg_x(c, 2), arg_x(c, 3), arg_x(c, 4)};
 }
 // void nvnCommandBufferDispatchCompute(NVNcommandBuffer *cmd, int x, int y, int z): caller = the game's return address

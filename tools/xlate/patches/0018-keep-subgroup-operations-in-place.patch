@@ -1,0 +1,47 @@
+--- a/src/Ryujinx.Graphics.Shader/StructuredIr/AstOptimizer.cs
++++ b/src/Ryujinx.Graphics.Shader/StructuredIr/AstOptimizer.cs
+@@ -27,7 +27,15 @@
+                         // use, and removing the assignment removed the operation itself (the reduction kernel c7830fac
+                         // lost its atomicMin on 2026-10-13; every translation ran in DebugMode since, to avoid this).
+                         bool sideEffects = HasSideEffects(assignment.Source);
+-                        bool isWorthPropagating = !sideEffects && (propVar.Uses.Count == 1 || IsWorthPropagating(assignment.Source));
++
++                        // TOTK: a subgroup operation (ballot, vote, shuffle) answers for the lanes active where it runs.
++                        // Propagated into its single use it would run there instead, often inside a branch only one
++                        // lane takes: Scarlet's instance culling kernel (02a5509655ac0d6d) added bitCount(ballot) to
++                        // its per-LOD instance counters from the elected lane only, so every subgroup counted 1 and
++                        // most trees and rocks were never drawn.
++                        bool laneDependent = IsLaneDependent(assignment.Source);
++                        bool isWorthPropagating = !sideEffects && !laneDependent &&
++                            (propVar.Uses.Count == 1 || IsWorthPropagating(assignment.Source));
+ 
+                         // TOTK: SPIR-V passes call arguments by pointer to a variable (StructuredProgram copies them
+                         // into temporaries); folding an expression into a call argument breaks GenerateCall.
+@@ -72,6 +80,27 @@
+                         return true;
+                 }
+             }
++
++            return false;
++        }
++
++        private static bool IsLaneDependent(IAstNode source)
++        {
++            if (source is AstOperation op)
++            {
++                switch (op.Inst & Instruction.Mask)
++                {
++                    case Instruction.Ballot:
++                    case Instruction.Shuffle:
++                    case Instruction.ShuffleDown:
++                    case Instruction.ShuffleUp:
++                    case Instruction.ShuffleXor:
++                    case Instruction.VoteAll:
++                    case Instruction.VoteAllEqual:
++                    case Instruction.VoteAny:
++                        return true;
++                }
++            }
+ 
+             return false;
+         }
