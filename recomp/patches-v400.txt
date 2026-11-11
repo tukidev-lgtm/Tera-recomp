@@ -71,11 +71,10 @@ site svres main 17d9e64 52807808 @page:x8 b940a508
 site svres main 17d9e68 5280438a @page:x10 b940a94a
 site svres main e939c4 5280780a @page:x10 b940a54a
 site svres main e939c8 5280438b @page:x11 b940a96b
-# The sun shadow map (TOTK_SHADOW_RES): the shadow renderer's constructor (main+0x16d22c8) copies {cascades, size}
-# from its parameters to +0x3d0 / +0x3d4, and main+0x16dc200 creates the depth array from them (size x size, a layer per
-# cascade). str x10, [x19, #0x3d0] -> str w10, [x19, #0x3d0]; adrp x10, page; ldr w10, [x10, #0xb0];
-# str w10, [x19, #0x3d4]. x10 is free after.
-site svshadow main 16d22e4 f901ea6a b903d26a @page:x10 b940b14a b903d66a
+# The shadow map (TOTK_SHADOW_RES): main+0x16dc200 creates the shadow renderer's depth array (size x size, a layer per
+# cascade) from its size at +0x3d4, which only this reads. ldrsw x13, [x19, #0x3d4] -> adrp x13, page;
+# ldr w13, [x13, #0xb0].
+site svshadow main 16dc200 b983d66d @page:x13 b940b1ad
 # The GPU memory the render targets come from (graphics config memorySize_CpuInvisible_GpuCached, which main+0x146e770
 # sets to 268 MiB when the data says 320 MiB): without more of it, a larger size runs out when the map opens.
 site svres main 146e770 52a21809 @page:x9 b940a129
@@ -107,6 +106,3 @@ trace main 1508a74 1508a94 1508ac8 1508ad4 1508b2c 1508b84 1508bb8 1508be4 1508c
 # LoadFont(name, data, size, index), SetFont(name), CheckGlyphExist(code), and the null result.
 trace sdk 18de08 18e60c 18e664
 trace main 2151bc0
-# Sun shadow map size: the shadow renderer constructor's store (main+0x16d22e4, x10 {cascades, size}) and the depth
-# array's creation (main+0x16dc200 reads the size at x19+0x3d4).
-trace main 16d22e4 16dc200
