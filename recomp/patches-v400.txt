@@ -25,6 +25,7 @@ set rrtb TERA_R_RTB 0
 set rrtc TERA_R_RTC 0
 set rctl TERA_R_CTL 0
 set rmem TERA_R_MEM 0
+set rwin TERA_R_WIN 0
 site rcfg main 146fe00 5280f008 52814008
 site rcfg main 146fe04 52808709 5280b409
 site rcfg main 146e7b4 5280f008 52814008
@@ -51,6 +52,10 @@ site rctl main 187be70 52a89e08 52a8a408
 # The GPU memory for render targets (graphics config memorySize_CpuInvisible_GpuCached, which main+0x146e770 sets to
 # 268 MiB when the data says 320 MiB): 512 MiB.
 site rmem main 146e770 52a21809 52a40009
+# The window (main+0xbc51b0..0xbc528c builds its description): its size comes from the engine config's
+# screenWidth / screenHeight (config +0x10 / +0x18, from the game data), read at main+0xbc525c / main+0xbc5264.
+site rwin main bc525c f9400909 d2814009
+site rwin main bc5264 f9400d09 d280b409
 
 # Debugging trace points (runtime/tracepoint.c). Remove before a release build.
 # Boot: nnMain's init chain (main+0x11bcc84) calls the object's virtual main+0x14fd2d8, which locks a field of the
