@@ -107,3 +107,6 @@ trace main 1508a74 1508a94 1508ac8 1508ad4 1508b2c 1508b84 1508bb8 1508be4 1508c
 # LoadFont(name, data, size, index), SetFont(name), CheckGlyphExist(code), and the null result.
 trace sdk 18de08 18e60c 18e664
 trace main 2151bc0
+# Sun shadow map size: the shadow renderer constructor's store (main+0x16d22e4, x10 {cascades, size}) and the depth
+# array's creation (main+0x16dc200 reads the size at x19+0x3d4).
+trace main 16d22e4 16dc200
