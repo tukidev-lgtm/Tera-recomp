@@ -33,6 +33,8 @@ A Scarlet or Violet build (`RT_SV`) starts from its own keyboard and mouse defau
 
 Any of them can be changed on the Controls tab or with a `bind_` line (Remapping, below).
 
+**Button prompts follow the device.** While keyboard and mouse are the device used last (a key, a mouse button or mouse motion; a gamepad button or a stick pushed hands it back), the game's controller button icons show the key or mouse button of the table above: A shows E, B Q, X Tab, Y the space bar, ZL and ZR the right and left mouse buttons, Plus R, Minus M, the right stick the mouse and its click the middle button. The game draws each button from a small mask texture of its own; `runtime/prompt_icons.c` knows those masks by a hash of their blocks and `runtime/vk_texture.c` writes our own mask of the key into the texture at the next submission after the device changes, and the game's blocks back after that (`kbm_prompts = 0` keeps the game's). The masks are drawn for the port by `tools/make_prompt_icons.py` into `runtime/prompt_icons_art.h`. They follow the defaults, not a `bind_` line. Buttons whose icons are not known yet (L, R, the left stick, the D-pad) keep the controller's.
+
 ### Tears of the Kingdom
 
 | Switch | Gamepad (by position, Nintendo layout) | Keyboard and mouse | Action in the world |

@@ -23,7 +23,9 @@
 #include "host.h"
 #include "nvn_api.h"
 #include "nvn_hmap.h"
+#include "input.h"
 #include "nvn_tex.h"
+#include "prompt_icons.h"
 #include "tex.h"
 #include "vk.h"
 #include "vk_dlaa.h"
@@ -66,6 +68,8 @@ typedef struct Tex {
     uint64_t rel_seq;             // while released: use_seq of the newest entry placed before this release; an entry
                                   // with a later use_seq on overlapping storage replaced this one's bytes
 } Tex;
+
+static void icon_forget(Tex *e);   // button prompts (below upload)
 
 // A slot keeps what vk_texture_by_id resolved for it, so a draw binding skips the key lookup and the address chain: the
 // entry (ce), valid while the generation of its address (agen) is still cgen, the view and has_view handed out with it,
@@ -611,6 +615,7 @@ static void dropped_check(const TexKey *k) {
 }
 
 static void destroy_tex(Tex *e) {
+    icon_forget(e);
     own_remove(e);
     tex_gen_bump(e->key.addr);
     nvn_hm_del(&by_key, &e->key);
@@ -1147,6 +1152,65 @@ static int upload_gpu(Tex *e) {
 
 // Copies the whole storage into the image (every level and layer the image has): on the GPU where it can
 // (upload_gpu), else on the CPU.
+// ---- keyboard and mouse button prompts (prompt_icons.c): the game's button masks, swapped with ours by device
+// A known mask is kept with a copy of its own blocks; shown says which blocks the image holds now (0 the game's, 1
+// ours). icons_sync, at every submit, writes the other ones when the device used last changed. Under the lock.
+typedef struct { Tex *e; uint8_t *orig; uint32_t n, w, h; int art, shown; } Icon;
+enum { ICON_MAX = 64 };
+static Icon icons[ICON_MAX];
+static int nicons;
+
+static void icon_forget(Tex *e) {
+    for (int i = 0; i < nicons; i++)
+        if (icons[i].e == e) {
+            free(icons[i].orig);
+            icons[i] = icons[--nicons];
+            return;
+        }
+}
+
+// After an upload: a small single-level BC4 texture whose blocks are a known mask is kept, holding the game's blocks.
+static void icon_check(Tex *e) {
+    const nvn_texdesc *d = &e->t.d;
+    if (e->f.vk != VK_FORMAT_BC4_UNORM_BLOCK || d->width > 64 || d->height > 64 || d->width % 4 || d->height % 4 ||
+        e->pub.levels != 1 || e->pub.layers != 1 || !prompt_icons_enabled()) {
+        icon_forget(e);
+        return;
+    }
+    uint32_t rb = d->width / 4 * 8, n = rb * (d->height / 4);
+    uint8_t buf[64 / 4 * 8 * (64 / 4)];
+    int art = nvn_deswizzle(d, 0, 0, e->t.mem, buf, rb) ? -1 : prompt_icon_match(buf, n, d->width, d->height);
+    icon_forget(e);
+    if (art < 0 || nicons == ICON_MAX) return;
+    uint8_t *orig = malloc(n);
+    if (!orig) return;
+    memcpy(orig, buf, n);
+    icons[nicons++] = (Icon){e, orig, n, d->width, d->height, art, 0};
+    static int logged;
+    if (!logged) logged = 1, rt_log("prompts: the game's button icons are known: keyboard and mouse ones follow the device");
+}
+
+// Writes the blocks the device used last asks for into each known mask that holds the other ones.
+static void icons_sync(void) {
+    if (!nicons) return;
+    int want = input_kbm_last() != 0;
+    for (int i = 0; i < nicons; i++) {
+        Icon *c = &icons[i];
+        if (c->shown == want || c->e->released || !c->e->uploaded) continue;
+        VkBuffer sb;
+        VkCommandBuffer cb = vk_upload_begin();
+        uint8_t *stg = vk_staging(c->n, &sb, NULL);
+        if (want) prompt_icon_bc4(c->art, c->w, c->h, stg);
+        else memcpy(stg, c->orig, c->n);
+        VkBufferImageCopy r = {.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, .imageExtent = {c->w, c->h, 1}};
+        barrier(cb, ALL_RW, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+        vkCmdCopyBufferToImage(cb, sb, c->e->pub.image, VK_IMAGE_LAYOUT_GENERAL, 1, &r);
+        barrier(cb, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, ALL_RW);
+        vk_upload_end();
+        c->shown = want;
+    }
+}
+
 static void upload(Tex *e) {
     const tex_t *t = &e->t;
     const nvn_texdesc *d = &t->d;
@@ -1173,6 +1237,7 @@ static void upload(Tex *e) {
     e->wt_n = 0;
     e->uploaded = 1;
     e->n_up++;
+    icon_check(e);   // a fresh upload holds the game's blocks; icons_sync puts ours back at the next submit
     perf_end(PERF_TEX, p0);
 }
 
@@ -1655,6 +1720,7 @@ void vk_texture_new_submit(void) {
                (unsigned long long)n_pressure_overwritten);
         n_pressure_drops = n_pressure_overwritten = 0;
     }
+    icons_sync();
     unlock();
 }
 
