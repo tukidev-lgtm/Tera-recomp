@@ -255,7 +255,7 @@ static void sv_decide(void) {
     if (pct < 25 || pct > 400) pct = 100;
     SV.drs = 1;
     if (pct < 100) SV.drs = pct / 100.0f;
-    // TOTK_SHADOW_RES: the sun shadow map's side (set svshadow), 0 the game's own (1024 or 2048 by place)
+    // TOTK_SHADOW_RES: the sun shadow map's side (set svshadow), 0 the game's own (2048)
     const char *sr = cfg_value("TOTK_SHADOW_RES");
     int side = !strcmp(sr, "game") ? 0 : atoi(sr);
     SV.shadow = side >= 512 && side <= 4096 ? (unsigned)side & ~7u : 0;
@@ -300,7 +300,8 @@ static void sv_res_init(void) {
     uint32_t half[2] = {SV.w / 2, SV.h / 2};
     memcpy(page + 164, half, sizeof half);
     memcpy(page + 172, &SV.drs, sizeof SV.drs);
-    memcpy(page + 176, &SV.shadow, sizeof SV.shadow);
+    uint32_t half_side = SV.shadow / 2;   // the field main+0x16dc200 reads is half the map's side
+    memcpy(page + 176, &half_side, sizeof half_side);
     rt_patch_switch(set, 1);
     int shadow = rt_patch_set("svshadow");
     if (SV.shadow && shadow >= 0) rt_patch_switch(shadow, 1);
