@@ -23,8 +23,8 @@ typedef struct { uint64_t hash; uint16_t w, h, fmt; uint8_t art, x, y, bw, bh; }
 enum { BC4 = 139, BC5 = 141 };   // VK_FORMAT_BC4_UNORM_BLOCK, VK_FORMAT_BC5_UNORM_BLOCK
 
 // The masks seen in the 4.0.0 UI, by FNV-1a 64 of their level-0 blocks, with the box their button's disc fills. Their
-// buttons, and the keys of SV_KEYS that press them: A E, B Q, X Tab, Y Space, ZL right mouse button, ZR left mouse
-// button, Plus R, Minus M, the right stick the mouse, its click the middle button. One-channel (BC4) icons are a white
+// buttons, and the keys of SV_KEYS that press them: A E, B Q, X Tab, Y Space, L Z, R C, ZL right mouse button, ZR left
+// mouse button, Plus R, Minus M, the right stick the mouse, its click the middle button. One-channel (BC4) icons are a white
 // shape with the label cut out; two-channel (BC5) ones hold the disc in G and the label cut out of R.
 static const Known known[] = {
     {0x23aa6e7169a0df59ull, 32, 32, BC4, PROMPT_KEY_E, 0, 0, 32, 32},        // A
@@ -39,6 +39,8 @@ static const Known known[] = {
     {0x4b2d6a04a9553b70ull, 32, 32, BC4, PROMPT_KEY_M, 0, 0, 32, 32},        // Minus in a disc
     {0x3f13cac4dc099f25ull, 32, 32, BC4, PROMPT_MOUSE_MOVE, 0, 0, 32, 32},   // right stick (camera)
     {0x25794d37de777ee6ull, 40, 40, BC4, PROMPT_MOUSE_M, 0, 0, 40, 40},      // right stick pressed
+    {0x4eb2b3ca37ba9d08ull, 40, 40, BC4, PROMPT_KEY_Z, 1, 4, 38, 32},        // L (the box tabs)
+    {0x26b1270192722106ull, 40, 40, BC4, PROMPT_KEY_C, 1, 4, 38, 32},        // R (the box tabs, Save in the menu)
     {0x5da9c4289de85445ull, 52, 70, BC5, PROMPT_KEY_TAB, 1, 10, 50, 50},     // X, large
     {0xca160275ec218944ull, 52, 70, BC5, PROMPT_KEY_SPACE, 1, 10, 50, 50},   // Y, large
 };
