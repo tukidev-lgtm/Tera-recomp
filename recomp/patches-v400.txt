@@ -21,8 +21,9 @@ site fps60 main 2b7a858 39c08154 52800014
 # the height (u32), +136 {1280, width} and +144 {720, height} (the handheld and docked sizes, two u32 each), +152 the
 # width and +156 the height as floats, +160 the GPU memory for render targets in bytes (u32), +164 half the width and
 # +168 half the height (u32), +172 the render scale (float, at most 1), +176 half
-# the sun shadow map's side (u32, set svshadow), +180 the scale of the scenery's detail distances and +184 of its
-# draw distance (floats, set svdraw).
+# the sun shadow map's side (u32, set svshadow), +180 the scale of the scenery's detail distances, +184 of its
+# draw distance, +188 of the objects' realizing and loading distances and +192 of their model culling distance (floats,
+# set svdraw).
 set svres TERA_SVRES 0
 set svshadow TERA_SVSHADOW 0
 set svdraw TERA_SVDRAW 0
@@ -87,6 +88,18 @@ site svdraw main b89140 bd001900 @page:x9 bd40b521 1e210800 bd001900
 site svdraw main b8915c bd001500 @page:x9 bd40b521 1e210800 bd001500
 # ldr w9, [x19, #0x2c] -> ldr s1, [x19, #0x2c]; adrp x9, page; ldr s2, [x9, #0xb8]; fmul s1, s1, s2; fmov w9, s1
 site svdraw main b89160 b9402e69 bd402e61 @page:x9 bd40b922 1e220821 1e260029
+# The objects' realizing distances: main+0x20277a4 gives a new object its RealizingDistance, UnrealizingDistance,
+# LoadingDistance and UnloadingDistance (floats the data sets by name, read by main+0x2027094 and main+0x2150b38), one
+# setter call each; within them an object is loaded and shown, outside them taken away. Each is scaled by the page's
+# factor as it is loaded for its setter. x9 and s1 are free before the call.
+# ldr s0, [x19, #k] -> ldr s0, [x19, #k]; adrp x9, page; ldr s1, [x9, #0xbc]; fmul s0, s0, s1
+site svdraw main 2027834 bd400260 bd400260 @page:x9 bd40bd21 1e210800
+site svdraw main 2027840 bd400660 bd400660 @page:x9 bd40bd21 1e210800
+site svdraw main 202784c bd400a60 bd400a60 @page:x9 bd40bd21 1e210800
+site svdraw main 2027858 bd400e60 bd400e60 @page:x9 bd40bd21 1e210800
+# A model's culling distance (its DistanceCulling, 10 when the data has none; main+0x2134328 reads it and
+# main+0x2134804 applies it). mov v0.16b, v8.16b -> adrp x9, page; ldr s0, [x9, #0xc0]; fmul s0, s8, s0
+site svdraw main 2134348 4ea81d00 @page:x9 bd40c120 1e200900
 # The GPU memory the render targets come from (graphics config memorySize_CpuInvisible_GpuCached, which main+0x146e770
 # sets to 268 MiB when the data says 320 MiB): without more of it, a larger size runs out when the map opens.
 site svres main 146e770 52a21809 @page:x9 b940a129

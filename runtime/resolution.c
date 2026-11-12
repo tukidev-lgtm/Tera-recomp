@@ -281,8 +281,10 @@ static uint64_t sv_res_extra_bytes(void) { return ((sv_rt_mem() - SV_RT_MEM) + 0
 // Draw distance (TOTK_DRAW_DISTANCE, set svdraw): the scenery's detail and draw distances scaled as the game stores
 // them in the GPU culling table (recomp/patches-v400.txt). Medium is the game's own.
 static void sv_draw_init(void) {
-    static const struct { const char *name; float detail, draw; } level[] = {
-        {"low", 0.6f, 0.6f}, {"high", 2.0f, 2.0f}, {"ultra", 4.0f, 4.0f}};
+    // detail: the scenery's detail model distances; draw: its GPU draw distance; realize: the objects' realizing and
+    // loading distances; cull: the models' culling distance
+    static const struct { const char *name; float detail, draw, realize, cull; } level[] = {
+        {"low", 0.6f, 0.6f, 0.75f, 0.75f}, {"high", 2.0f, 2.0f, 1.75f, 2.0f}, {"ultra", 4.0f, 4.0f, 2.5f, 4.0f}};
     const char *v = cfg_value("TOTK_DRAW_DISTANCE");
     for (size_t i = 0; i < sizeof level / sizeof *level; i++) {
         if (strcmp(v, level[i].name)) continue;
@@ -292,10 +294,11 @@ static void sv_draw_init(void) {
             rt_log("draw distance: the generated C has no svdraw patch set; the game's own");
             return;
         }
-        float f[2] = {level[i].detail, level[i].draw};
+        float f[4] = {level[i].detail, level[i].draw, level[i].realize, level[i].cull};
         memcpy(page + 180, f, sizeof f);
         rt_patch_switch(set, 1);
-        rt_log("draw distance: %s, detail models x%.1f, drawn x%.1f", v, f[0], f[1]);
+        rt_log("draw distance: %s, detail models x%.2f, drawn x%.2f, objects realized x%.2f, models culled x%.2f", v, f[0],
+               f[1], f[2], f[3]);
         return;
     }
     rt_log("draw distance: the game's own");
