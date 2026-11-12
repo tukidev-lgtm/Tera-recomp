@@ -168,6 +168,8 @@ void mem_freeze_stats(uint64_t *frozen, uint64_t *freezes, uint64_t *fault_thaws
                                                            // regions frozen now; freezes and thaws since the last call
 void mem_kernel_free(void *p, uint64_t size);              // TLR/TLS reuse after thread exit
 void mem_watch_poll(void);                                 // TOTK_WATCH (memory.c); the replay, per submission
+// TOTK_WATCH=auto: the range is set once, by the first call (nvn_api_cmd.c log_prog_ubo); 1 when this call set it
+int mem_watch_auto(uint64_t lo, uint64_t hi);
 int mem_guest_readable(uint64_t a, uint64_t n);            // [a, a+n) can be read without a fault: inside a loaded
                                                            // module or the committed heap answered from the layout,
                                                            // anything else by plat_mem_readable (an OS query)

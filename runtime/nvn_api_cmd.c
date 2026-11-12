@@ -1158,6 +1158,7 @@ static void log_prog_ubo(int count, int instances) {
     }
     if (want < 0 || (long long)cur_prog_serial != want || n >= 24) return;
     n++;
+    if (n == 1 && vs_ubo[6].addr > (32ull << 20)) mem_watch_auto(vs_ubo[6].addr - (32ull << 20), vs_ubo[6].addr + (32ull << 20));
     char b[700];
     int o = snprintf(b, sizeof b, "prog %lld draw %d: %d x %d;", want, n, count, instances);
     for (int i = 0; i < 18 && o < (int)sizeof b - 48; i++)

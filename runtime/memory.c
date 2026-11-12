@@ -163,7 +163,8 @@ void mem_freeze_stats(uint64_t *frozen, uint64_t *freezes, uint64_t *fault_thaws
 // The first write into a frozen region thaws it and retries. A fault in a region another thread thawed meanwhile
 // retries too; any other fault goes on to the crash handler.
 // The platform's write-fault hook (plat_mem_fault_hook): 1 retries the write.
-// TOTK_WATCH=<address>:<size> (debugging): who writes into a guest memory range. The replay (vk_exec_record, through
+// TOTK_WATCH=<address>:<size> (debugging): who writes into a guest memory range; TOTK_WATCH=auto takes the range from
+// the first draw TOTK_LOG_PROG_UBO logs (32 MiB either side of its vertex uniform buffer 6, mem_watch_auto). The replay (vk_exec_record, through
 // mem_watch_poll) seals the range read-only once it is committed and again every submission; a write into it is logged
 // with the writer (a lifted function, or the host code address), up to 64 distinct writers, and its page is unsealed
 // until the next poll.
@@ -177,7 +178,10 @@ void mem_watch_poll(void) {
         const char *e = cfg_get("TOTK_WATCH");
         char *q;
         watch_state = 1;
-        if (e && *e && (watch_lo = strtoull(e, &q, 0)) && *q == ':' && (watch_hi = watch_lo + strtoull(q + 1, NULL, 0)) > watch_lo) {
+        if (e && !strcmp(e, "auto")) {
+            watch_state = 3;   // mem_watch_auto sets the range
+            rt_log("watch: the range comes from TOTK_LOG_PROG_UBO's first draw");
+        } else if (e && *e && (watch_lo = strtoull(e, &q, 0)) && *q == ':' && (watch_hi = watch_lo + strtoull(q + 1, NULL, 0)) > watch_lo) {
             watch_lo &= ~(PAGE - 1), watch_hi = (watch_hi + PAGE - 1) & ~(PAGE - 1);
             watch_state = 2;
             rt_log("watch: writes into %#llx..%#llx are logged", (unsigned long long)watch_lo, (unsigned long long)watch_hi);
@@ -203,6 +207,15 @@ static void watch_class(int r, uint64_t obj) {
     if (ti && mem_guest_readable(ti + 8, 8) && (nm = *(const uint64_t *)(uintptr_t)(ti + 8)) && mem_guest_readable(nm, 1))
         name = (const char *)(uintptr_t)nm;
     rt_log("watch:   x%d %#llx vtable %s class %.120s", r, (unsigned long long)obj, ldr_describe(vt, d, sizeof d), name);
+}
+
+int mem_watch_auto(uint64_t lo, uint64_t hi) {
+    if (watch_state == 0) mem_watch_poll();
+    if (watch_state != 3 || hi <= lo) return 0;
+    watch_lo = lo & ~(PAGE - 1), watch_hi = (hi + PAGE - 1) & ~(PAGE - 1);
+    __atomic_store_n(&watch_state, 2, __ATOMIC_RELEASE);
+    rt_log("watch: writes into %#llx..%#llx are logged", (unsigned long long)watch_lo, (unsigned long long)watch_hi);
+    return 1;
 }
 
 static int watch_fault(uint64_t a) {
