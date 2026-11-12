@@ -2253,7 +2253,8 @@ static void bind_pipeline(VkExec *ex, VkPipelineBindPoint bp, VkPipeline p) {
 // at 21:9 or 16:10 they come out stretched. The game draws its UI into the image its tone mapping composite writes
 // (fragment shader f19b88cdd55c1a08, a full-screen pass with vertex shader 966ac518942e1eba), after that composite;
 // draws into that image with another vertex shader get the centred 16:9 rectangle (vk_exec_ui_rect). The UI's own
-// offscreen textures (the minimap) are other images and keep their viewports. Hashes as the F9 dump names shaders.
+// offscreen textures (the minimap) are other images and keep their viewports, and so do the draws that cover the whole
+// screen (ui_full_screen). Hashes as the F9 dump names shaders.
 #define SV_COMPOSITE_FS 0xf19b88cdd55c1a08ull
 #define SV_FULLSCREEN_VS 0x966ac518942e1ebaull
 
@@ -2269,16 +2270,55 @@ static uint64_t shader_hash(const GfxShader *sh) {
     return h;
 }
 
+// A UI draw that covers the whole screen (a menu's dimmed backdrop, a fade) keeps the game's viewport, so it still
+// covers the sides. Scarlet and Violet's UI is NintendoWare's ui2d: every vertex shader of it reads its vertex
+// uniform block 0 (c3) the same way, a unit quad vertex (x, y) placed at (x * c3[33].x + c3[33].z,
+// -y * c3[33].y + c3[33].w), moved by the 3x4 model view in c3[4..6] and projected by c3[0..3]. Its four corners in
+// normalised device coordinates tell whether the draw reaches every edge.
+static int ui_read_c3(VkExec *ex, float c3[34][4]) {
+    const p_bind_buf *b = &ex->ubo[NVN_STAGE_VS][0];
+    size_t n = 34 * 16;
+    if (!b->addr || b->size < n) return 0;
+    const uint8_t *snap = vk_usnap_bytes(b->addr, n);
+    VkMemSpan sp;
+    if (snap) memcpy(c3, snap, n);
+    else if (vk_mem_resolve(b->addr, n, &sp)) memcpy(c3, (const void *)(uintptr_t)b->addr, n);
+    else return 0;
+    upd_apply(ex, b->addr, (uint8_t *)c3, n);
+    return 1;
+}
+
+static int ui_full_screen(VkExec *ex) {
+    float c[34][4], lo[2] = {1e30f, 1e30f}, hi[2] = {-1e30f, -1e30f};
+    if (!ui_read_c3(ex, c)) return 0;
+    for (int k = 0; k < 4; k++) {
+        float v[4] = {(k & 1) * c[33][0] + c[33][2], -(float)(k >> 1) * c[33][1] + c[33][3], 0, 1}, m[4], p[4];
+        for (int i = 0; i < 3; i++) m[i] = c[4 + i][0] * v[0] + c[4 + i][1] * v[1] + c[4 + i][2] * v[2] + c[4 + i][3];
+        m[3] = 1;
+        for (int i = 0; i < 4; i++) p[i] = c[i][0] * m[0] + c[i][1] * m[1] + c[i][2] * m[2] + c[i][3] * m[3];
+        if (!(p[3] > 1e-6f || p[3] < -1e-6f)) return 0;
+        for (int i = 0; i < 2; i++) {
+            float d = p[i] / p[3];
+            if (d < lo[i]) lo[i] = d;
+            if (d > hi[i]) hi[i] = d;
+        }
+    }
+    return lo[0] <= -0.99f && hi[0] >= 0.99f && lo[1] <= -0.99f && hi[1] >= 0.99f;
+}
+
 static int ui_fit_for(VkExec *ex, const GfxShader *vs, const GfxShader *fs) {
     static VkImage ui_img;
+    static const GfxShader *comp_fs;   // the composite's, found by its hash once
     if (!res_sv_ui_fit() || !ex->pass_ncolor) return 0;
     VkImage img = ex->color[0].image;
-    if (fs && shader_hash(fs) == SV_COMPOSITE_FS) {
-        if (ui_img != img) rt_log("vk_exec: Scarlet and Violet's UI goes into a centred 16:9 rectangle");
+    if (fs && !comp_fs && shader_hash(fs) == SV_COMPOSITE_FS) comp_fs = fs;
+    if (fs && fs == comp_fs) {
+        static int logged;
+        if (!logged++) rt_log("vk_exec: Scarlet and Violet's UI goes into a centred 16:9 rectangle");
         ui_img = img;
         return 0;
     }
-    return img && img == ui_img && shader_hash(vs) != SV_FULLSCREEN_VS;
+    return img && img == ui_img && shader_hash(vs) != SV_FULLSCREEN_VS && !ui_full_screen(ex);
 }
 
 static VkViewport draw_viewport(VkExec *ex) {
