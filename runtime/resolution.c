@@ -268,6 +268,8 @@ static void sv_decide(void) {
 // of our own, room for 4 cascades of it in 32-bit depth, in whole MiB.
 static uint64_t sv_rt_mem(void) {
     sv_decide();
+    const char *dbg = getenv("TERA_SV_RTMB");   // debug: the render target memory in MiB
+    if (dbg && atoi(dbg) > 0) return (uint64_t)atoi(dbg) << 20;
     uint64_t px = (uint64_t)SV.w * SV.h, base = (uint64_t)BASE_W * BASE_H;
     uint64_t mem = px <= base ? SV_RT_MEM : SV_RT_MEM * px / base;
     if (SV.shadow) mem += 4ull * 4 * SV.shadow * SV.shadow;
