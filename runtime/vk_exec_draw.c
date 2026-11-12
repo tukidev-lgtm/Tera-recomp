@@ -2350,8 +2350,7 @@ static int ui_kind(int ok, int text, const float lo[2], const float hi[2]) {
     if (text) return UI_TEXT;
     if (!ok || !(lo[0] > -10 && hi[0] < 10 && lo[1] > -10 && hi[1] < 10)) return UI_NONE;   // not ui2d's block
     float w = hi[0] - lo[0], h = hi[1] - lo[1];
-    int across = (lo[0] <= -0.99f && hi[0] >= 0.99f) || (lo[1] <= -0.99f && hi[1] >= 0.99f);
-    if (across) return UI_BAND;
+    if (w > 1.9f || h > 1.9f) return UI_BAND;   // from edge to edge, or nearly (a battle's corner brackets' long lines)
     return w * h > 4.0f / 6 ? UI_LARGE : UI_ELEM;
 }
 

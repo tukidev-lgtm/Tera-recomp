@@ -495,7 +495,8 @@ static void row_window_size(void) {
 // 32:9 monitor sizes, the 16:10 screens of the Steam Deck, handhelds and laptops and the 3:2 screens of laptops and
 // tablets (Surface, Framework; the camera and the HUD follow
 // another shape, resolution.c res_init; the installer lays the HUD out for each, installer/steps.py ASPECT_SIZES), and
-// the current value when it is another size.
+// the current value when it is another size. Scarlet and Violet take them all: their camera follows the shape and
+// their UI keeps 16:9 proportions (vk_exec_draw.c ui_place).
 static void row_output_res(void) {
     static const char *const vals[] = {"1280x720", "1600x900", "1920x1080", "2560x1440", "3200x1800", "3840x2160",
                                        "2560x1080", "3440x1440", "3840x1600", "5120x2160", "3840x1080", "5120x1440",
@@ -508,8 +509,6 @@ static void row_output_res(void) {
     for (int i = 0; i < N; i++) {
         int w = 0, h = 0;
         sscanf(vals[i], "%dx%d", &w, &h);
-        // Scarlet and Violet take 16:9 sizes only (resolution.c sv_decide): the first six.
-        if (rt_game_version >= 400 && i >= 6) break;
         snprintf(shown[n], sizeof shown[n], "%d × %d", w, h);   // U+00D7, the multiplication sign
         names[n] = shown[n];
         kept[n++] = vals[i];
