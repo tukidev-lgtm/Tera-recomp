@@ -1502,6 +1502,12 @@ static VkPipelineLayout half_layout(Layout *l, int h) {
 }
 
 // Builds one library from the pipeline's state; key is the library's key (PrKey: fin holds the added outputs).
+// Set while this thread is in the driver building a graphics pipeline library or fast-linking libraries: a crash
+// there turns libraries off on this GPU and driver for the next runs (main.c crash_handler, vk_caps.c
+// vk_caps_gpl_crash).
+static _Thread_local int in_library;
+int vk_pipeline_in_library(void) { return in_library; }
+
 static VkPipeline lib_create(int kind, const VkPipeState *s, const GKey *k, VkPipelineLayout lay, const void *key) {
     static const VkGraphicsPipelineLibraryFlagsEXT part[4] = {
         VK_GRAPHICS_PIPELINE_LIBRARY_VERTEX_INPUT_INTERFACE_BIT_EXT, VK_GRAPHICS_PIPELINE_LIBRARY_PRE_RASTERIZATION_SHADERS_BIT_EXT,
@@ -1600,7 +1606,9 @@ static VkPipeline lib_create(int kind, const VkPipeState *s, const GKey *k, VkPi
         pi.pColorBlendState = &cb, pi.pMultisampleState = &ms;
     }
     plat_mutex_lock_shared(&cache_use);
+    in_library = 1;
     if (vkCreateGraphicsPipelines(P.device, P.cache, 1, &pi, NULL, &pipe) != VK_SUCCESS) pipe = VK_NULL_HANDLE;
+    in_library = 0;
     plat_mutex_unlock_shared(&cache_use);
 out:
     if (m) vkDestroyShaderModule(P.device, m, NULL);
@@ -1793,7 +1801,9 @@ static VkPipeline gpl_link(const VkPipeState *s, const GKey *k, const Layout *lc
                                            .layout = l->layout};
         if (build) plat_mutex_unlock(&P.lock);
         uint64_t t1 = qpc();
+        in_library = 1;
         if (vkCreateGraphicsPipelines(P.device, VK_NULL_HANDLE, 1, &pi, NULL, &pipe) != VK_SUCCESS) pipe = VK_NULL_HANDLE;
+        in_library = 0;
         double ms = ms_since(t1);   // the link alone: library builds are counted apart
         if (build) plat_mutex_lock(&P.lock);
         P.g.link_ms += ms;

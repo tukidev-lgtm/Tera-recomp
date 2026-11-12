@@ -231,6 +231,7 @@ static void crash_handler(const PlatCrash *x) {
     rt_log_raw("\n", 1);
     if (x->cxx_type)
         rt_logf("  C++ type %s%s%s\n", x->cxx_type, x->cxx_what ? ", what(): " : "", x->cxx_what ? x->cxx_what : "");
+    if (vk_pipeline_in_library()) vk_caps_gpl_crash();
     uint64_t f = x->module ? 0 : lifted_function(rip);
     if (f) rt_logf("  in lifted function f_%llx = %s\n", (unsigned long long)f, ldr_describe(f, d, sizeof d));
     // abort and invalid parameter: where the host code called it; a fault in another module: the driver code and the
