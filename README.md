@@ -65,6 +65,27 @@ walked around the starting area at 30 fps with correct lighting. Expect crashes 
 self-hosted server) is not there yet: see [docs/plan.md](docs/plan.md) and the boot log in
 [docs/phase3-boot.md](docs/phase3-boot.md).
 
+## Mods
+
+Mods go in the `mods` folder next to `totk.exe`, one folder per mod. The settings menu's Mods tab opens that folder
+and switches mods on and off. The mod system comes from TotK Recomp and has not been tested with Scarlet mods yet:
+[docs/mods.md](docs/mods.md).
+
+Expected to work:
+
+- **File mods** (`romfs`): textures, models, outfits, Pokémon and battle data, text and music, including mods that ship
+  a modified `data.trpfd` with loose files.
+- **Code patches** (`.ips`, `.pchtxt`) made for game version 4.0.0. The game rebuilds itself with them at the next
+  start.
+- **Atmosphère cheats** (`cheats`).
+
+Not supported:
+
+- **Mods with their own code**: a `subsdk` plugin (exlaunch and similar) or a replaced `main`. Such a mod stays off as
+  a whole. Pokémon Ultimate Scarlet is one of them. These plugins hook the game by rewriting its instructions in
+  memory, and the port runs the game as recompiled native code, so those rewrites do nothing.
+- **Code patches for another game version** (for example 3.0.1). They are skipped.
+
 ## Report a problem
 
 [Open an issue](https://github.com/tukidev-lgtm/Tera-recomp/issues/new) with:
