@@ -1051,17 +1051,24 @@ NVN_API(nvnCommandBufferBindVertexBuffer) {
     bind_vertex_buffers(cmd_of(c), (int)arg_x(c, 1), 1, &r);
 }
 // Uniform and storage buffers: one record per binding (CB_SIZE/ADDRESS 4 words + CB_BIND 1 on hardware).
+// log_prog_ubo: the vertex stage's uniform buffers the thread bound last, by index
+static _Thread_local struct { uint64_t addr, size; } vs_ubo[18];
+static void note_vs_ubo(uint32_t op, int st, int i, uint64_t addr, uint64_t size) {
+    if (op == OP_BIND_UBO && st == 0 && i >= 0 && i < 18) vs_ubo[i].addr = addr, vs_ubo[i].size = size;
+}
 static void bind_buffers(const Cpu *c, uint32_t op) {   // (cmd, stage, first, n, const NVNbufferRange *ranges)
     cmd_t *o = cmd_of(c);
     int st = (int)arg_x(c, 1), first = (int)arg_x(c, 2), n = (int)arg_x(c, 3);
     const NVNbufferRange *rg = arg_p(c, 4);
     for (int i = 0; i < n; i++) {
+        note_vs_ubo(op, st, first + i, rg[i].address, rg[i].size);
         *REC(o, op, p_bind_buf) = (p_bind_buf){st, first + i, rg[i].address, rg[i].size};
         hw_fix(o, 20);
     }
 }
 static void bind_buffer(const Cpu *c, uint32_t op) {    // (cmd, stage, index, NVNbufferAddress address, size_t size)
     cmd_t *o = cmd_of(c);
+    note_vs_ubo(op, (int)arg_x(c, 1), (int)arg_x(c, 2), arg_x(c, 3), arg_x(c, 4));
     *REC(o, op, p_bind_buf) = (p_bind_buf){(int)arg_x(c, 1), (int)arg_x(c, 2), arg_x(c, 3), arg_x(c, 4)};
     hw_fix(o, 20);
 }
@@ -1139,7 +1146,28 @@ NVN_API(nvnCommandBufferSetPolygonOffsetClamp) {
 // the F9 dump's "prog" names it) that records a draw of at least n instances (1: every draw), or an indirect draw, is
 // logged once, with its vertex or index count and instances, the caller and up to 8 frames of the frame-pointer
 // chain: to find the code behind a given shader's draws (the game's grass) from an F9 dump of the same run.
+// TOTK_LOG_PROG_UBO=<serial> (log_prog_ubo, a diagnostic): the first 24 draws of that program log the vertex stage's
+// uniform buffers bound at the time (index: address+size; the shaders' cbuf slot is the index plus 3), to find the
+// guest memory the game writes a draw's per-instance data into (then TOTK_WATCH on it names the writer).
+static void log_prog_ubo(int count, int instances) {
+    static long long want = -2;
+    static int n;
+    if (want == -2) {
+        const char *v = cfg_value("TOTK_LOG_PROG_UBO");
+        want = *v ? atoll(v) : -1;
+    }
+    if (want < 0 || (long long)cur_prog_serial != want || n >= 24) return;
+    n++;
+    char b[700];
+    int o = snprintf(b, sizeof b, "prog %lld draw %d: %d x %d;", want, n, count, instances);
+    for (int i = 0; i < 18 && o < (int)sizeof b - 48; i++)
+        if (vs_ubo[i].addr)
+            o += snprintf(b + o, sizeof b - (size_t)o, " %d:%#llx+%#llx", i, (unsigned long long)vs_ubo[i].addr,
+                          (unsigned long long)vs_ubo[i].size);
+    rt_log("%s", b);
+}
 static void log_instanced(const Cpu *c, int count, int instances) {
+    log_prog_ubo(count, instances);
     static int min = -1;
     if (min < 0) {
         min = atoi(cfg_value("TOTK_LOG_INSTANCED"));

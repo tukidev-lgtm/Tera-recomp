@@ -100,17 +100,6 @@ site svdraw main 2027858 bd400e60 bd400e60 @page:x9 bd40bd21 1e210800
 # A model's culling distance (its DistanceCulling, 10 when the data has none; main+0x2134328 reads it and
 # main+0x2134804 applies it). mov v0.16b, v8.16b -> adrp x9, page; ldr s0, [x9, #0xc0]; fmul s0, s8, s0
 site svdraw main 2134348 4ea81d00 @page:x9 bd40c120 1e200900
-# The same distances as the area data gives them: main+0x162a0xx reads TreeNearBegin, TreeNearEnd, GrassNearBegin,
-# GrassNearEnd, TreeFarBegin and TreeFarEnd into s8 and stores each in two of its tables (first at the sites below),
-# which the systems that place the grass and the trees read. s8 is scaled in place there by the page's factor, so the
-# second store takes the scaled value too. x9 and s0 are free (x9 is loaded before its next use).
-# str s8, [x8, #0x40] -> adrp x9, page; ldr s0, [x9, #0xc4]; fmul s8, s8, s0; str s8, [x8, #0x40]
-site svdraw main 162a324 bd004108 @page:x9 bd40c520 1e200908 bd004108
-site svdraw main 162a5a0 bd004108 @page:x9 bd40c520 1e200908 bd004108
-site svdraw main 162a814 bd004108 @page:x9 bd40c520 1e200908 bd004108
-site svdraw main 162aa88 bd004108 @page:x9 bd40c520 1e200908 bd004108
-site svdraw main 162acfc bd004108 @page:x9 bd40c520 1e200908 bd004108
-site svdraw main 162af70 bd004108 @page:x9 bd40c520 1e200908 bd004108
 # The grass and tree fade distances: each frame main+0x261dd7c looks up the shader parameters
 # DetailInstanceFadeNearStart/End (the grass), WorldInstanceFadeNearStart/End and WorldInstanceFadeFarStart/End (trees
 # and other world instances) by name and stores them in the scene constants (+0xbc, +0xc0, +0xcc, +0xd0, +0xd4,
