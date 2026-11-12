@@ -2314,44 +2314,49 @@ static int ui_ndc_rect(VkExec *ex, float lo[2], float hi[2]) {
 // (vk_exec_ui_rect). Up and down it stays centred: 16:10 adds little room there.
 //
 // The HUD's elements keep to their side, as the minimap on the right, and the rest of the UI stays centred. An element
-// is several draws (a banner's ends and middle, the minimap's disc, icons and ring), and its parts must move together,
-// so the draws are taken in groups of touching rectangles (ui_frame_end). A frame's groups are only known once it
-// is drawn, so a draw goes where its group went in the frame before when it is the same draw (same place in the order,
-// same rectangle), else by its own rectangle.
-//  - A draw that covers the whole screen (a menu's dimmed backdrop) makes the frame a menu: everything else stays
-//    centred, a window's pieces must not part, and the map's tiles that reach past the edges stay in its window. The
-//    backdrop keeps the game's viewport itself.
-//  - On the HUD an effect over the picture (a draw of a fifth of the screen or more, as the crouching overlay's rotated
-//    tiles, or a band from edge to edge, as a battle's letterbox bars) keeps the game's viewport too.
-//  - Otherwise a group in the outer third of the layout goes to that side; one wider than two thirds stays centred.
+// is several draws, and its parts must move together, so the draws are taken in groups (ui_frame_end):
+//  - Small draws that touch, at most 16 draws apart, make an element (a banner's two ends and then its middle; the
+//    minimap's disc, icons and ring). It goes to the side of the layout's outer third it sits in, else in the middle;
+//    one wider than two thirds stays in the middle.
+//  - Large draws (a sixth of the screen or more) are the parts of an element that a mask cuts: the minimap's map
+//    tiles, rotated with the camera and reaching past the screen's edges, cut to the disc by a mask. Touching large
+//    draws make one group, which goes with the element it touches nearest in the draw order (the disc right after
+//    them), or keeps the game's viewport when it touches none.
+//  - A band from edge to edge (a battle's letterbox bars), a draw that covers the whole screen and draws that are not
+//    ui2d (no rectangle on screen in c3) keep the game's viewport.
+//  - A draw that covers the whole screen (a menu's dimmed backdrop) makes the frame a menu: everything else stays in
+//    the middle, a window's pieces must not part, and the big map's tiles stay in its window.
 //  - Text (the font's vertex shader takes its glyphs from a storage buffer and has no rectangle in c3) goes where the
 //    draw before it went, the pane it is written on.
+// A frame's groups are only known once it is drawn, so a draw goes where the draw at its place in the order went in
+// the frame before, when that was the same kind of draw near the same spot (the minimap turns with the camera), else
+// by its own rectangle.
 #define UI_MAX 1024
-typedef struct { float lo[2], hi[2]; int ok, text; } UiRect;
+enum { UI_NONE, UI_TEXT, UI_BAND, UI_ELEM, UI_LARGE };   // kinds of UI draws
+typedef struct { float lo[2], hi[2]; int kind; } UiRect;
 static struct {
     UiRect cur[UI_MAX], prev[UI_MAX];
-    int place[UI_MAX];            // where each draw of the previous frame's groups went
+    int place[UI_MAX];            // where each draw of the previous frame went
     int ncur, nprev, menu, last;  // menu: a full-screen draw this frame; last: the place of the draw before
 } UI;
+
+#define UI_MIDDLE (1 | 1 << 1 | 1 << 3)
 
 static int ui_full(const float lo[2], const float hi[2]) {
     return lo[0] <= -0.99f && hi[0] >= 0.99f && lo[1] <= -0.99f && hi[1] >= 0.99f;
 }
 
-// An effect over the picture rather than an element: a fifth of the screen or more, or a band from edge to edge
-// (a battle's letterbox bars).
-static int ui_effect(const float lo[2], const float hi[2]) {
+static int ui_kind(int ok, int text, const float lo[2], const float hi[2]) {
+    if (text) return UI_TEXT;
+    if (!ok || !(lo[0] > -10 && hi[0] < 10 && lo[1] > -10 && hi[1] < 10)) return UI_NONE;   // not ui2d's block
     float w = hi[0] - lo[0], h = hi[1] - lo[1];
     int past = lo[0] < -1.01f || hi[0] > 1.01f || lo[1] < -1.01f || hi[1] > 1.01f;
-    int wild = !(lo[0] > -10 && hi[0] < 10 && lo[1] > -10 && hi[1] < 10);   // not ui2d's block: no rectangle at all
-    return wild || w * h > 0.8f || (past && (w > 1.9f || h > 1.9f));
+    if (ui_full(lo, hi) || (past && (w > 1.9f || h > 1.9f))) return UI_BAND;
+    return w * h > 4.0f / 6 ? UI_LARGE : UI_ELEM;
 }
 
-static int ui_decide(const float lo[2], const float hi[2], int menu) {
-    if (ui_full(lo, hi)) return 0;
-    if (menu) return 1 | 1 << 1 | 1 << 3;   // the map's tiles reach past the edges but belong in its window
-    if (ui_effect(lo, hi)) return 0;
-    if (hi[0] - lo[0] > 4.0f / 3) return 1 | 1 << 1 | 1 << 3;
+static int ui_side(const float lo[2], const float hi[2]) {
+    if (UI.menu || hi[0] - lo[0] > 4.0f / 3) return UI_MIDDLE;
     float cx = (lo[0] + hi[0]) * 0.5f;
     int ax = cx > 1.0f / 3 ? 1 : cx < -1.0f / 3 ? -1 : 0;
     return 1 | (ax + 1) << 1 | 1 << 3;
@@ -2362,74 +2367,79 @@ static int ui_touch(const UiRect *a, const UiRect *b) {
     return a->lo[0] <= b->hi[0] + e && b->lo[0] <= a->hi[0] + e && a->lo[1] <= b->hi[1] + e && b->lo[1] <= a->hi[1] + e;
 }
 
-// The frame's draws are all in: its groups and their places, for the next frame. Two draws are in one group when
-// they touch, are of the same kind (effect or element: the crouching overlay's tiles lie over the minimap but are no
-// part of it) and at most 16 draws apart: an element's parts come one after another, though not always touching their
-// neighbour in the order (a banner's two ends, then its middle).
 static int ui_root(int *par, int x) {
     while (par[x] != x) par[x] = par[par[x]], x = par[x];
     return x;
 }
 
+// The frame's draws are all in: its groups and their places, for the next frame.
 static void ui_frame_end(void) {
-    static int par[UI_MAX];
+    static int par[UI_MAX], near[UI_MAX], dist[UI_MAX], gplace[UI_MAX];
     static float glo[UI_MAX][2], ghi[UI_MAX][2];
     int n = UI.ncur;
+    const UiRect *c = UI.cur;
     for (int j = 0; j < n; j++) {
         par[j] = j;
-        const UiRect *r = &UI.cur[j];
-        if (r->text || !r->ok) continue;
-        int fx = ui_effect(r->lo, r->hi);
-        for (int k = j > 16 ? j - 16 : 0; k < j; k++) {
-            const UiRect *q = &UI.cur[k];
-            if (q->text || !q->ok || ui_effect(q->lo, q->hi) != fx || !ui_touch(q, r)) continue;
-            par[ui_root(par, j)] = ui_root(par, k);
-        }
+        int kj = c[j].kind;
+        if (kj != UI_ELEM && kj != UI_LARGE) continue;
+        for (int k = j > 32 ? j - 32 : 0; k < j; k++)
+            if (c[k].kind == kj && (kj == UI_LARGE || j - k <= 16) && ui_touch(&c[k], &c[j])) par[ui_root(par, j)] = ui_root(par, k);
     }
-    for (int j = 0; j < n; j++) glo[j][0] = glo[j][1] = 1e30f, ghi[j][0] = ghi[j][1] = -1e30f;
+    for (int j = 0; j < n; j++) glo[j][0] = glo[j][1] = 1e30f, ghi[j][0] = ghi[j][1] = -1e30f, near[j] = -1;
     for (int j = 0; j < n; j++) {
-        const UiRect *r = &UI.cur[j];
-        if (r->text || !r->ok) continue;
+        if (c[j].kind != UI_ELEM) continue;
         int g = ui_root(par, j);
-        for (int k = 0; k < 2; k++) glo[g][k] = fminf(glo[g][k], r->lo[k]), ghi[g][k] = fmaxf(ghi[g][k], r->hi[k]);
+        for (int k = 0; k < 2; k++) glo[g][k] = fminf(glo[g][k], c[j].lo[k]), ghi[g][k] = fmaxf(ghi[g][k], c[j].hi[k]);
+    }
+    for (int j = 0; j < n; j++)
+        if (c[j].kind == UI_ELEM && ui_root(par, j) == j) gplace[j] = ui_side(glo[j], ghi[j]);
+    // each group of large draws: the element draw it touches nearest in the order
+    for (int j = 0; j < n; j++) dist[j] = 1 << 30;
+    for (int j = 0; j < n; j++) {
+        if (c[j].kind != UI_LARGE) continue;
+        int g = ui_root(par, j);
+        for (int k = 0; k < n; k++) {
+            if (c[k].kind != UI_ELEM || abs(k - j) >= dist[g] || !ui_touch(&c[k], &c[j])) continue;
+            dist[g] = abs(k - j), near[g] = k;
+        }
     }
     for (int j = 0; j < n; j++) {
-        const UiRect *r = &UI.cur[j];
-        if (r->text || !r->ok) {
-            UI.place[j] = r->text && j ? UI.place[j - 1] : 0;
-            continue;
-        }
-        int g = ui_root(par, j);   // an effect goes by itself, an element by its group
-        UI.place[j] = ui_effect(r->lo, r->hi) ? ui_decide(r->lo, r->hi, UI.menu) : ui_decide(glo[g], ghi[g], UI.menu);
+        int k = c[j].kind, g = ui_root(par, j);
+        UI.place[j] = k == UI_ELEM    ? gplace[g]
+                      : k == UI_LARGE ? (UI.menu ? UI_MIDDLE : near[g] >= 0 ? gplace[ui_root(par, near[g])] : 0)
+                      : k == UI_TEXT  ? (j ? UI.place[j - 1] : 0)
+                                      : 0;
     }
     memcpy(UI.prev, UI.cur, sizeof(UiRect) * (size_t)n);
     UI.nprev = n, UI.ncur = 0, UI.menu = 0, UI.last = 0;
 }
 
 static int ui_place(VkExec *ex, const GfxShader *vs) {
-    UiRect r = {{0, 0}, {0, 0}, 0, 0};
-    r.ok = ui_ndc_rect(ex, r.lo, r.hi);
-    r.text = !r.ok && ex->ubo[NVN_STAGE_VS][0].size < 34 * 16;
-    if (r.ok && ui_full(r.lo, r.hi)) UI.menu = 1;
+    UiRect r = {{0, 0}, {0, 0}, 0};
+    int ok = ui_ndc_rect(ex, r.lo, r.hi);
+    r.kind = ui_kind(ok, !ok && ex->ubo[NVN_STAGE_VS][0].size < 34 * 16, r.lo, r.hi);
+    if (r.kind == UI_BAND && ui_full(r.lo, r.hi)) UI.menu = 1;
     int i = UI.ncur < UI_MAX ? UI.ncur++ : -1, place, from_prev = 0;
     if (i >= 0) UI.cur[i] = r;
-    if (r.text) {
+    const UiRect *q = i >= 0 && i < UI.nprev ? &UI.prev[i] : NULL;
+    if (r.kind == UI_TEXT) {
         place = UI.last;
-    } else if (!r.ok) {
-        place = 0;   // not ui2d: as the game draws it
-    } else if (i >= 0 && i < UI.nprev && UI.prev[i].ok && fabsf(UI.prev[i].lo[0] - r.lo[0]) < 1e-3f &&
-               fabsf(UI.prev[i].hi[0] - r.hi[0]) < 1e-3f && fabsf(UI.prev[i].lo[1] - r.lo[1]) < 1e-3f &&
-               fabsf(UI.prev[i].hi[1] - r.hi[1]) < 1e-3f) {
+    } else if (r.kind == UI_NONE || r.kind == UI_BAND) {
+        place = 0;
+    } else if (UI.menu) {
+        place = UI_MIDDLE;
+    } else if (q && q->kind == r.kind &&
+               (r.kind == UI_LARGE || (fabsf(q->lo[0] + q->hi[0] - r.lo[0] - r.hi[0]) < 0.3f &&
+                                       fabsf(q->lo[1] + q->hi[1] - r.lo[1] - r.hi[1]) < 0.3f))) {
         place = UI.place[i], from_prev = 1;
     } else {
-        place = ui_decide(r.lo, r.hi, UI.menu);
+        place = r.kind == UI_ELEM ? ui_side(r.lo, r.hi) : 0;
     }
     UI.last = place;
     if (vk_dump_armed)   // with an F9 dump, each UI draw's rectangle and where it went
-        rt_log("ui draw %d: vs %016llx c3 %llu bytes, x %.3f..%.3f y %.3f..%.3f%s place %d%s%s", i,
+        rt_log("ui draw %d: vs %016llx c3 %llu bytes, x %.3f..%.3f y %.3f..%.3f kind %d place %d%s%s", i,
                (unsigned long long)shader_hash(vs), (unsigned long long)ex->ubo[NVN_STAGE_VS][0].size, r.lo[0], r.hi[0],
-               r.lo[1], r.hi[1], r.text ? " text" : r.ok ? "" : " (no rectangle)", place,
-               from_prev ? " (its group)" : "", UI.menu ? " menu" : "");
+               r.lo[1], r.hi[1], r.kind, place, from_prev ? " (as the frame before)" : "", UI.menu ? " menu" : "");
     return place;
 }
 
