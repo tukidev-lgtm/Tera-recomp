@@ -13,6 +13,7 @@
 // adds the same control memory again. CallCommands and CopyCommands inline the called recording, so copies hold no
 // OP_CALL or OP_JUMP.
 #include <stddef.h>
+#include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1131,6 +1132,38 @@ NVN_API(nvnCommandBufferSetStencilRef) {
 NVN_API(nvnCommandBufferSetPolygonOffsetClamp) {
     *REC(cmd_of(c), OP_POLY_OFFSET, p_poly_offset) = (p_poly_offset){arg_s(c, 0), arg_s(c, 1), arg_s(c, 2)};
 }
+// TOTK_LOG_INSTANCED=<n> (log_instanced, a diagnostic): each distinct guest call chain that records an instanced draw
+// of at least n instances is logged once, with its vertex or index count and instances, the caller and up to 8 frames of
+// the frame-pointer chain: to find the code that builds the instance lists of the game's grass and other many-instance
+// draws.
+static void log_instanced(const Cpu *c, int count, int instances) {
+    static int min = -1;
+    if (min < 0) {
+        min = atoi(cfg_value("TOTK_LOG_INSTANCED"));
+        if (min <= 0) min = 0;
+    }
+    if (!min || instances < min) return;
+    uint64_t lr[9] = {c->x[30]}, fp = c->x[29];
+    int n = 1;
+    for (; n < 9 && fp && !(fp & 7) && plat_mem_readable(fp, 16); n++) {
+        uint64_t next = LD64(fp);
+        lr[n] = LD64(fp + 8);
+        if (next <= fp || next - fp > (64u << 20)) { n++; break; }
+        fp = next;
+    }
+    uint64_t key = 0xcbf29ce484222325ull;
+    for (int i = 0; i < n; i++) key = (key ^ lr[i]) * 0x100000001b3ull;
+    static uint64_t seen[64];
+    static int nseen;
+    for (int i = 0; i < nseen; i++)
+        if (seen[i] == key) return;
+    if (nseen == 64) return;
+    seen[nseen++] = key;
+    char d[160];
+    rt_log("instanced draw: %d vertices/indices x %d instances, from %s", count, instances, ldr_describe(lr[0], d, sizeof d));
+    for (int i = 1; i < n; i++) rt_log("instanced draw   frame %d: %s", i, ldr_describe(lr[i], d, sizeof d));
+}
+
 // void nvnCommandBufferDrawArrays(NVNcommandBuffer *cmd, NVNdrawPrimitive prim, int first, int count)
 NVN_API(nvnCommandBufferDrawArrays) {
     *REC(cmd_of(c), OP_DRAW, p_draw) = (p_draw){(int)arg_x(c, 1), (int)arg_x(c, 2), (int)arg_x(c, 3), 0, 1};
@@ -1140,6 +1173,7 @@ NVN_API(nvnCommandBufferDrawArrays) {
 NVN_API(nvnCommandBufferDrawArraysInstanced) {
     int inst = (int)arg_x(c, 5);
     if (inst <= 0) return;
+    log_instanced(c, (int)arg_x(c, 3), inst);
     *REC(cmd_of(c), OP_DRAW, p_draw) = (p_draw){(int)arg_x(c, 1), (int)arg_x(c, 2), (int)arg_x(c, 3), (int)arg_x(c, 4), inst};
 }
 // void nvnCommandBufferDrawElements(NVNcommandBuffer *cmd, NVNdrawPrimitive prim, NVNindexType type, int count,
@@ -1160,6 +1194,7 @@ NVN_API(nvnCommandBufferDrawElementsBaseVertex) {
 // int instances): assumed to use the 6-parameter draw macro of the base-vertex form (unverified)
 NVN_API(nvnCommandBufferDrawElementsInstanced) {
     cmd_t *o = cmd_of(c);
+    log_instanced(c, (int)arg_x(c, 3), (int)arg_x(c, 7));
     *REC(o, OP_DRAW_IDX, p_draw_idx) = (p_draw_idx){(int)arg_x(c, 1), (int)arg_x(c, 2), (int)arg_x(c, 3),
                                                     (int)arg_x(c, 5), (int)arg_x(c, 6), (int)arg_x(c, 7), arg_x(c, 4)};
     hw_fix(o, 44);
