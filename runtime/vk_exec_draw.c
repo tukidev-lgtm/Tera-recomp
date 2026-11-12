@@ -2322,8 +2322,8 @@ static int ui_ndc_rect(VkExec *ex, float lo[2], float hi[2]) {
 //    tiles, rotated with the camera and reaching past the screen's edges, cut to the disc by a mask. Touching large
 //    draws make one group, which goes with the element it touches nearest in the draw order (the disc right after
 //    them), or keeps the game's viewport when it touches none.
-//  - A band from edge to edge (a battle's letterbox bars), a draw that covers the whole screen and draws that are not
-//    ui2d (no rectangle on screen in c3) keep the game's viewport.
+//  - A band from edge to edge (a battle's letterbox bars and the shade over them as it begins), a draw that covers the
+//    whole screen and draws that are not ui2d (no rectangle on screen in c3) keep the game's viewport.
 //  - A draw that covers the whole screen (a menu's dimmed backdrop) makes the frame a menu: everything else stays in
 //    the middle, a window's pieces must not part, and the big map's tiles stay in its window.
 //  - Text (the font's vertex shader takes its glyphs from a storage buffer and has no rectangle in c3) goes where the
@@ -2350,8 +2350,8 @@ static int ui_kind(int ok, int text, const float lo[2], const float hi[2]) {
     if (text) return UI_TEXT;
     if (!ok || !(lo[0] > -10 && hi[0] < 10 && lo[1] > -10 && hi[1] < 10)) return UI_NONE;   // not ui2d's block
     float w = hi[0] - lo[0], h = hi[1] - lo[1];
-    int past = lo[0] < -1.01f || hi[0] > 1.01f || lo[1] < -1.01f || hi[1] > 1.01f;
-    if (ui_full(lo, hi) || (past && (w > 1.9f || h > 1.9f))) return UI_BAND;
+    int across = (lo[0] <= -0.99f && hi[0] >= 0.99f) || (lo[1] <= -0.99f && hi[1] >= 0.99f);
+    if (across) return UI_BAND;
     return w * h > 4.0f / 6 ? UI_LARGE : UI_ELEM;
 }
 
