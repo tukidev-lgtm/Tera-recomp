@@ -18,6 +18,7 @@
 #include "cfg.h"
 #include "gfx.h"
 #include "host.h"
+#include "platform/platform.h"
 #include "vk.h"
 
 VkCaps vk_caps = {.float64 = 1, .sg_size = 32};
@@ -35,16 +36,61 @@ void vk_caps_features(VkPhysicalDeviceFeatures *f) {
     vk_caps.float64 = f->shaderFloat64;
 }
 
+static char gpu_key[32];   // vendor:device:driver version, as gpl-crash.txt names a GPU and driver
+
 void vk_caps_driver(VkPhysicalDevice p) {
     VkPhysicalDeviceDriverProperties drv = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
     VkPhysicalDeviceProperties2 p2 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, .pNext = &drv};
     vkGetPhysicalDeviceProperties2(p, &p2);
     vk_caps.amd = p2.properties.vendorID == 0x1002;
+    snprintf(gpu_key, sizeof gpu_key, "%04x:%04x:%08x", p2.properties.vendorID, p2.properties.deviceID,
+             p2.properties.driverVersion);
     // AMD split RDNA 1 and 2 off into a driver branch of their own; its driverInfo reads
     // "26.10.1 (AMD proprietary shader compiler)" where the RDNA 3 and 4 driver names LLPC.
     vk_caps.amd_sc = drv.driverID == VK_DRIVER_ID_AMD_PROPRIETARY && strstr(drv.driverInfo, "shader compiler");
     vk_caps.mesa = drv.driverID == VK_DRIVER_ID_MESA_RADV || drv.driverID == VK_DRIVER_ID_INTEL_OPEN_SOURCE_MESA ||
                    drv.driverID == VK_DRIVER_ID_MESA_NVK;
+}
+
+// ---- a driver that crashes on graphics pipeline libraries. AMD's RDNA 1/2 driver 26.10.1 on an RX 6700 XT died
+// inside vkCreateGraphicsPipelines, reading address 0 or 0x130, at the same draw of the opening class cutscene in
+// every run (issue #8). When the driver crashes while a thread builds a library or fast-links one
+// (vk_pipeline.c in_library), the crash reporter (main.c crash_handler) writes this GPU and driver into
+// gpl-crash.txt next to totk.exe, and later runs on them keep libraries off: each pipeline is built whole at its
+// first draw, which stutters but does not take that path. Another driver version tries libraries again, and so does
+// deleting the file.
+static int gpl_crash_path(char *out, size_t n) {
+    char exe[PLAT_PATH_MAX * 2];
+    int len = plat_exe_path(exe, sizeof exe);
+    char *cut = len > 0 && (size_t)len < sizeof exe ? plat_last_sep(exe) : NULL;
+    if (!cut) return 0;
+    *cut = 0;
+    return snprintf(out, n, "%s/gpl-crash.txt", exe) < (int)n;
+}
+
+static int gpl_crashed_before(void) {
+    char path[PLAT_PATH_MAX * 2 + 16];
+    uint64_t n = 0;
+    uint8_t *d = gpu_key[0] && gpl_crash_path(path, sizeof path) ? plat_file_read(path, &n) : NULL;
+    if (!d) return 0;
+    char *t = malloc(n + 1);
+    int hit = 0;
+    if (t) memcpy(t, d, n), t[n] = 0, hit = strstr(t, gpu_key) != NULL;
+    free(t);
+    free(d);
+    return hit;
+}
+
+void vk_caps_gpl_crash(void) {
+    char path[PLAT_PATH_MAX * 2 + 16], text[256];
+    if (!gpu_key[0] || !gpl_crash_path(path, sizeof path)) return;
+    int n = snprintf(text, sizeof text,
+                     "# The graphics driver crashed building a graphics pipeline library on this GPU and driver\n"
+                     "# (vendor:device:driver version; runtime/vk_caps.c). Libraries stay off on it. Delete this file "
+                     "to try them again.\n%s\n", gpu_key);
+    if (n > 0 && n < (int)sizeof text && plat_file_write_atomic(path, text, (size_t)n))
+        rt_logf("  the driver crashed building a graphics pipeline library: %s now names this GPU and driver (%s), "
+                "and the next runs build pipelines without libraries\n", path, gpu_key);
 }
 
 // TOTK_GPL=0 turns graphics pipeline libraries off; they are on wherever the driver has fast linking. AMD's RDNA 1/2
@@ -59,6 +105,11 @@ int vk_caps_gpl(const VkPhysicalDeviceGraphicsPipelineLibraryFeaturesEXT *f,
     gpl_fast = p->graphicsPipelineLibraryFastLinking;
     const char *e = cfg_get("TOTK_GPL");
     vk_caps.gpl = gpl_lib && gpl_fast && !(e && !strcmp(e, "0"));
+    if (vk_caps.gpl && gpl_crashed_before()) {
+        vk_caps.gpl = 0;
+        rt_log("vk caps: graphics pipeline libraries off: the driver crashed building one in an earlier run on this GPU "
+               "and driver (%s, gpl-crash.txt next to totk.exe)", gpu_key);
+    }
     return vk_caps.gpl;
 }
 
