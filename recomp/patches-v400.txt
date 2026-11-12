@@ -85,6 +85,12 @@ site svshadow main 16dc200 b983d66d @page:x13 b940b1ad
 # The GPU memory the render targets come from (graphics config memorySize_CpuInvisible_GpuCached, which main+0x146e770
 # sets to 268 MiB when the data says 320 MiB): without more of it, a larger size runs out when the map opens.
 site svmem main 146e770 52a21809 @page:x9 b940a129
+# debug: the two largest heaps of the same config (900 MiB at +0x8 and 800 MiB at +0x28 of the first table), grown by
+# the render target memory's growth: page +204 / +208.
+set svheap8 TERA_SVHEAP8 0
+set svheap28 TERA_SVHEAP28 0
+site svheap8 main 146e644 52a70809 @page:x9 b940cd29
+site svheap28 main 146e6b4 52a64009 @page:x9 b940d129
 
 # Debugging trace points (runtime/tracepoint.c). Remove before a release build.
 # Boot: nnMain's init chain (main+0x11bcc84) calls the object's virtual main+0x14fd2d8, which locks a field of the

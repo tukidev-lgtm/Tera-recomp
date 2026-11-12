@@ -309,6 +309,15 @@ static void sv_res_init(void) {
         if (ps >= 0) rt_patch_switch(ps, !skip);
         if (skip) rt_log("resolution: debug: %s left off (TERA_SV_OFF)", parts[i]);
     }
+    uint32_t grow = mem - (uint32_t)SV_RT_MEM, h8 = 0x38400000u + grow, h28 = 0x32000000u + grow;
+    memcpy(page + 204, &h8, 4), memcpy(page + 208, &h28, 4);
+    const char *heap = getenv("TERA_SV_HEAP");   // debug: "a" grows the heap at +0x8, "b" the one at +0x28
+    if (heap) {
+        int a = rt_patch_set("svheap8"), b = rt_patch_set("svheap28");
+        if (a >= 0 && strchr(heap, 'a')) rt_patch_switch(a, 1);
+        if (b >= 0 && strchr(heap, 'b')) rt_patch_switch(b, 1);
+        rt_log("resolution: debug: TERA_SV_HEAP=%s, heaps +%u MiB", heap, grow >> 20);
+    }
     rt_patch_switch(set, 1);
     int shadow = rt_patch_set("svshadow");
     if (SV.shadow && shadow >= 0) rt_patch_switch(shadow, 1);
