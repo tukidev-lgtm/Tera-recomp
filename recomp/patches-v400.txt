@@ -23,7 +23,7 @@ site fps60 main 2b7a858 39c08154 52800014
 # +168 half the height (u32), +172 the render scale (float, at most 1), +176 half
 # the sun shadow map's side (u32, set svshadow), +180 the scale of the scenery's detail distances, +184 of its
 # draw distance, +188 of the objects' realizing and loading distances, +192 of their model culling distance, +196 of
-# the grass and tree fade distances and +200 of the terrain streaming radii (floats, set svdraw).
+# the grass and tree fade distances (floats, set svdraw).
 set svres TERA_SVRES 0
 set svshadow TERA_SVSHADOW 0
 set svdraw TERA_SVDRAW 0
@@ -100,15 +100,6 @@ site svdraw main 2027858 bd400e60 bd400e60 @page:x9 bd40bd21 1e210800
 # A model's culling distance (its DistanceCulling, 10 when the data has none; main+0x2134328 reads it and
 # main+0x2134804 applies it). mov v0.16b, v8.16b -> adrp x9, page; ldr s0, [x9, #0xc0]; fmul s0, s8, s0
 site svdraw main 2134348 4ea81d00 @page:x9 bd40c120 1e200900
-# The terrain streaming radii: main+0x1510008 reads trinity_TerrainStreamingSetting (terrainGridSize, terrainSearchRadius,
-# terrainUnloadRadius, terrainMaxUpdateCount) into the terrain entity, the search radius to +0x29c and the unload
-# radius to +0x2a0. The terrain patches within them carry the grass (each its own instance list, drawn by vertex
-# shaders 02e34f6b4aa52a5f / aaafe19f9fd36104). Both radii are scaled by the page's factor. x9 and s1 are free there.
-# str s0, [x19, #0x29c] -> adrp x9, page; ldr s1, [x9, #0xc8]; fmul s0, s0, s1; str s0, [x19, #0x29c]
-site svdraw main 1510274 bd029e60 @page:x9 bd40c921 1e210800 bd029e60
-# str s8, [x19, #0x2a0] -> adrp x9, page; ldr s1, [x9, #0xc8]; fmul s1, s8, s1; str s1, [x19, #0x2a0]
-# (s8 stays as it is: it is the default of the fields read after)
-site svdraw main 1510380 bd02a268 @page:x9 bd40c921 1e210901 bd02a261
 # The grass and tree fade distances: each frame main+0x261dd7c looks up the shader parameters
 # DetailInstanceFadeNearStart/End (the grass), WorldInstanceFadeNearStart/End and WorldInstanceFadeFarStart/End (trees
 # and other world instances) by name and stores them in the scene constants (+0xbc, +0xc0, +0xcc, +0xd0, +0xd4,

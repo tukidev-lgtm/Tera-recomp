@@ -282,11 +282,12 @@ static uint64_t sv_res_extra_bytes(void) { return ((sv_rt_mem() - SV_RT_MEM) + 0
 // them in the GPU culling table (recomp/patches-v400.txt). Medium is the game's own.
 static void sv_draw_init(void) {
     // detail: the scenery's detail model distances; draw: its GPU draw distance; realize: the objects' realizing and
-    // loading distances; cull: the models' culling distance; fade: the grass and tree fade distances; terrain: the
-    // terrain streaming radii (the patches that carry grass)
-    static const struct { const char *name; float detail, draw, realize, cull, fade, terrain; } level[] = {
-        {"low", 0.6f, 0.6f, 0.75f, 0.75f, 0.75f, 0.75f}, {"high", 2.0f, 2.0f, 1.75f, 2.0f, 2.0f, 1.5f},
-        {"ultra", 4.0f, 4.0f, 2.5f, 4.0f, 3.0f, 2.0f}};
+    // loading distances; cull: the models' culling distance; fade: the grass and tree fade distances. The grass itself
+    // stays within the game's own radius: each terrain patch near the player carries its list, and what picks those
+    // patches is not found yet (the terrain streaming radii, main+0x1510008, are not it).
+    static const struct { const char *name; float detail, draw, realize, cull, fade; } level[] = {
+        {"low", 0.6f, 0.6f, 0.75f, 0.75f, 0.75f}, {"high", 2.0f, 2.0f, 1.75f, 2.0f, 2.0f},
+        {"ultra", 4.0f, 4.0f, 2.5f, 4.0f, 3.0f}};
     const char *v = cfg_value("TOTK_DRAW_DISTANCE");
     for (size_t i = 0; i < sizeof level / sizeof *level; i++) {
         if (strcmp(v, level[i].name)) continue;
@@ -296,11 +297,11 @@ static void sv_draw_init(void) {
             rt_log("draw distance: the generated C has no svdraw patch set; the game's own");
             return;
         }
-        float f[6] = {level[i].detail, level[i].draw, level[i].realize, level[i].cull, level[i].fade, level[i].terrain};
+        float f[5] = {level[i].detail, level[i].draw, level[i].realize, level[i].cull, level[i].fade};
         memcpy(page + 180, f, sizeof f);
         rt_patch_switch(set, 1);
         rt_log("draw distance: %s, detail models x%.2f, drawn x%.2f, objects realized x%.2f, models culled x%.2f, grass "
-               "and trees fade x%.2f, terrain streamed x%.2f", v, f[0], f[1], f[2], f[3], f[4], f[5]);
+               "and trees fade x%.2f", v, f[0], f[1], f[2], f[3], f[4]);
         return;
     }
     rt_log("draw distance: the game's own");
