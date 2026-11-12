@@ -37,6 +37,7 @@ void vk_caps_features(VkPhysicalDeviceFeatures *f) {
 }
 
 static char gpu_key[32];   // vendor:device:driver version, as gpl-crash.txt names a GPU and driver
+static int gpl_crash_off;  // libraries off because gpl-crash.txt names this GPU and driver
 
 void vk_caps_driver(VkPhysicalDevice p) {
     VkPhysicalDeviceDriverProperties drv = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
@@ -106,7 +107,7 @@ int vk_caps_gpl(const VkPhysicalDeviceGraphicsPipelineLibraryFeaturesEXT *f,
     const char *e = cfg_get("TOTK_GPL");
     vk_caps.gpl = gpl_lib && gpl_fast && !(e && !strcmp(e, "0"));
     if (vk_caps.gpl && gpl_crashed_before()) {
-        vk_caps.gpl = 0;
+        vk_caps.gpl = 0, gpl_crash_off = 1;
         rt_log("vk caps: graphics pipeline libraries off: the driver crashed building one in an earlier run on this GPU "
                "and driver (%s, gpl-crash.txt next to totk.exe)", gpu_key);
     }
@@ -195,8 +196,11 @@ void vk_caps_init(VkCtx *c) {
            has_ext(ep, ne, "VK_EXT_graphics_pipeline_library"), depth_ok(p, VK_FORMAT_D16_UNORM),
            depth_ok(p, VK_FORMAT_D24_UNORM_S8_UINT), depth_ok(p, VK_FORMAT_X8_D24_UNORM_PACK32), depth_ok(p, VK_FORMAT_D32_SFLOAT),
            depth_ok(p, VK_FORMAT_D32_SFLOAT_S8_UINT));
+    const char *why = !gpl_lib || !gpl_fast || vk_caps.gpl ? ""
+                      : gpl_crash_off                       ? ", off after a driver crash (gpl-crash.txt)"
+                                                            : ", off by TOTK_GPL=0";
     rt_log("vk caps: gpl %s fast-link %s (graphicsPipelineLibrary %u%s)", vk_caps.gpl ? "yes" : "no",
-           gpl_fast ? "yes" : "no", (unsigned)gpl_lib, !gpl_lib || !gpl_fast || vk_caps.gpl ? "" : ", off by TOTK_GPL=0");
+           gpl_fast ? "yes" : "no", (unsigned)gpl_lib, why);
     rt_log("vk caps: fallbacks: float64 %s, storage buffers %s %u, subgroup pin %u on stages %#x, translator subgroup vs/fs/cs %u/%u/%u",
            vk_caps.float64 ? "native" : "softfloat64", vk_caps.sbuf_align ? "rounded down to" : "exact, alignment",
            (unsigned)l->minStorageBufferOffsetAlignment, want, (unsigned)vk_caps.sg_pin_stages, told[0], told[1], told[2]);
