@@ -15,7 +15,7 @@ of the 2 MiB-aligned module slot free); the runtime commits it and owns its cont
 +0..15 the frame-rate step (runtime/frame_rate.c), +16..55 the output, swapchain and scene sizes
 (runtime/resolution.c res_init), +56..59 the camera's aspect ratio (runtime/resolution.c res_init, set aspect), +60..63
 the field-of-view factor (runtime/resolution.c res_fov_live, set fov), +92..95 the sun shadow map size
-(runtime/resolution.c shadow_init, set shadow), +128..199 Scarlet and Violet's game size, render scale, memory, shadow map and draw distance
+(runtime/resolution.c shadow_init, set shadow), +128..203 Scarlet and Violet's game size, render scale, memory, shadow map and draw distance
 (runtime/resolution.c sv_res_init, set svres). A new set takes words outside these.
 
 The replacement words are lifted at the site's address in place of the original instruction, and the generated C reads
