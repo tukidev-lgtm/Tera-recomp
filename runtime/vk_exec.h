@@ -71,7 +71,7 @@ typedef struct VkExec {
     p_scissor scissor;                   // OP_SCISSOR (scissor 0)
     int has_scissor;                     // a scissor was set; else unbounded
     int ui_fit;                          // the draw is Scarlet and Violet's UI at another shape than 16:9: its viewport
-                                         // and scissor go into the centred 16:9 rectangle (vk_exec_draw.c ui_fit_for)
+                                         // and scissor go into a 16:9 rectangle (vk_exec_draw.c ui_place)
     float depth_range[2];                // OP_DEPTH_RANGE: overrides the viewports' near and far
     uint32_t st_vmask[2], st_wmask[2], st_ref[2];   // OP_STENCIL per face (0 front, 1 back): compare mask, write mask, ref
     float point_size;                    // OP_BIND_STATE kind 6: NVN point size for the support buffer; 0 = never set = 1

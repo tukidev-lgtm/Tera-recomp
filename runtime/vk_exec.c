@@ -711,12 +711,13 @@ VkBuffer vk_exec_inline_buffer(VkDeviceSize size) {
     return t->b;
 }
 
-// The centred 16:9 rectangle of the render area, x, y, width and height in pixels: where Scarlet and Violet's UI goes
-// at another shape (ex->ui_fit), so its 16:9 layout keeps its proportions.
+// The 16:9 rectangle of the render area, x, y, width and height in pixels, centred or against the edges ex->ui_fit
+// names: where Scarlet and Violet's UI goes at another shape, so its 16:9 layout keeps its proportions.
 void vk_exec_ui_rect(const VkExec *ex, float r[4]) {
     float w = (float)ex->pass_w, h = (float)ex->pass_h, fw = w, fh = w * 9.0f / 16.0f;
     if (fh > h) fh = h, fw = h * 16.0f / 9.0f;
-    r[0] = (w - fw) * 0.5f, r[1] = (h - fh) * 0.5f, r[2] = fw, r[3] = fh;
+    int ax = (ex->ui_fit >> 1 & 3) - 1, ay = (ex->ui_fit >> 3 & 3) - 1;   // the anchor (vk_exec_draw.c ui_place)
+    r[0] = (w - fw) * 0.5f * (float)(1 + ax), r[1] = (h - fh) * 0.5f * (float)(1 + ay), r[2] = fw, r[3] = fh;
 }
 
 VkRect2D vk_exec_scissor(const VkExec *ex) {

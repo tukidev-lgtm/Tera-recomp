@@ -2254,7 +2254,7 @@ static void bind_pipeline(VkExec *ex, VkPipelineBindPoint bp, VkPipeline p) {
 // (fragment shader f19b88cdd55c1a08, a full-screen pass with vertex shader 966ac518942e1eba), after that composite;
 // draws into that image with another vertex shader get the centred 16:9 rectangle (vk_exec_ui_rect). The UI's own
 // offscreen textures (the minimap) are other images and keep their viewports, and so do the draws that cover the whole
-// screen (ui_full_screen). Hashes as the F9 dump names shaders.
+// screen (ui_place). Hashes as the F9 dump names shaders.
 #define SV_COMPOSITE_FS 0xf19b88cdd55c1a08ull
 #define SV_FULLSCREEN_VS 0x966ac518942e1ebaull
 
@@ -2308,30 +2308,51 @@ static int ui_ndc_rect(VkExec *ex, float lo[2], float hi[2]) {
     return 1;
 }
 
-static int ui_full_screen(VkExec *ex, const GfxShader *vs) {
+// Where a UI draw goes (ex->ui_fit): 0 the game's viewport; else 1 | (horizontal + 1) << 1 | (vertical + 1) << 3, the
+// 16:9 rectangle's anchor in pixels, -1 left or top, 0 centred, 1 right or bottom (vk_exec_ui_rect).
+//  - A draw that is not wholly on screen keeps the game's viewport: a menu's dimmed backdrop, the tiles of the
+//    crouching overlay (rotated quads that reach past the edges), and draws that are not ui2d at all (their uniform
+//    block gives no rectangle on screen) cover the whole picture as the game meant.
+//  - In a menu (a backdrop that covers the whole screen has been drawn since this frame's composite) everything stays
+//    centred: a window's pieces must not part.
+//  - On the HUD a draw in the outer third of the layout keeps to that edge, as the minimap in the bottom right corner;
+//    the rest stays centred.
+static int ui_place(VkExec *ex, const GfxShader *vs, int *menu) {
     float lo[2], hi[2];
-    int ok = ui_ndc_rect(ex, lo, hi);
+    int ok = ui_ndc_rect(ex, lo, hi), place = 0;
     int full = ok && lo[0] <= -0.99f && hi[0] >= 0.99f && lo[1] <= -0.99f && hi[1] >= 0.99f;
-    if (vk_dump_armed)   // with an F9 dump, each UI draw's rectangle, to tell which draws cover the screen
-        rt_log("ui draw: vs %016llx c3 %llu bytes, x %.3f..%.3f y %.3f..%.3f%s%s", (unsigned long long)shader_hash(vs),
+    if (full) *menu = 1;
+    if (ok && lo[0] >= -1.01f && hi[0] <= 1.01f && lo[1] >= -1.01f && hi[1] <= 1.01f && !full) {
+        int ax = 0, ay = 0;
+        if (!*menu) {
+            float cx = (lo[0] + hi[0]) * 0.5f, cy = (lo[1] + hi[1]) * 0.5f;   // y up in device coordinates
+            ax = cx > 1.0f / 3 ? 1 : cx < -1.0f / 3 ? -1 : 0;
+            ay = cy > 1.0f / 3 ? -1 : cy < -1.0f / 3 ? 1 : 0;
+        }
+        place = 1 | (ax + 1) << 1 | (ay + 1) << 3;
+    }
+    if (vk_dump_armed)   // with an F9 dump, each UI draw's rectangle and where it went
+        rt_log("ui draw: vs %016llx c3 %llu bytes, x %.3f..%.3f y %.3f..%.3f%s%s place %d%s", (unsigned long long)shader_hash(vs),
                (unsigned long long)ex->ubo[NVN_STAGE_VS][0].size, lo[0], hi[0], lo[1], hi[1], ok ? "" : " (unreadable)",
-               full ? " full screen" : "");
-    return full;
+               full ? " full screen" : "", place, *menu ? " menu" : "");
+    return place;
 }
 
 static int ui_fit_for(VkExec *ex, const GfxShader *vs, const GfxShader *fs) {
     static VkImage ui_img;
     static const GfxShader *comp_fs;   // the composite's, found by its hash once
+    static int menu;                   // a full-screen UI draw since the composite
     if (!res_sv_ui_fit() || !ex->pass_ncolor) return 0;
     VkImage img = ex->color[0].image;
     if (fs && !comp_fs && shader_hash(fs) == SV_COMPOSITE_FS) comp_fs = fs;
     if (fs && fs == comp_fs) {
         static int logged;
-        if (!logged++) rt_log("vk_exec: Scarlet and Violet's UI goes into a centred 16:9 rectangle");
-        ui_img = img;
+        if (!logged++) rt_log("vk_exec: Scarlet and Violet's UI keeps 16:9 proportions, the HUD at the edges");
+        ui_img = img, menu = 0;
         return 0;
     }
-    return img && img == ui_img && shader_hash(vs) != SV_FULLSCREEN_VS && !ui_full_screen(ex, vs);
+    if (!img || img != ui_img || shader_hash(vs) == SV_FULLSCREEN_VS) return 0;
+    return ui_place(ex, vs, &menu);
 }
 
 static VkViewport draw_viewport(VkExec *ex) {
