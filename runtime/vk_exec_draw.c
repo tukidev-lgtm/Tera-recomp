@@ -2288,8 +2288,10 @@ static int ui_read_c3(VkExec *ex, float c3[34][4]) {
     return 1;
 }
 
-static int ui_full_screen(VkExec *ex) {
-    float c[34][4], lo[2] = {1e30f, 1e30f}, hi[2] = {-1e30f, -1e30f};
+// The draw's rectangle in normalised device coordinates, lo and hi per axis; 0 when its uniform block is not readable.
+static int ui_ndc_rect(VkExec *ex, float lo[2], float hi[2]) {
+    float c[34][4];
+    lo[0] = lo[1] = 1e30f, hi[0] = hi[1] = -1e30f;
     if (!ui_read_c3(ex, c)) return 0;
     for (int k = 0; k < 4; k++) {
         float v[4] = {(k & 1) * c[33][0] + c[33][2], -(float)(k >> 1) * c[33][1] + c[33][3], 0, 1}, m[4], p[4];
@@ -2303,7 +2305,18 @@ static int ui_full_screen(VkExec *ex) {
             if (d > hi[i]) hi[i] = d;
         }
     }
-    return lo[0] <= -0.99f && hi[0] >= 0.99f && lo[1] <= -0.99f && hi[1] >= 0.99f;
+    return 1;
+}
+
+static int ui_full_screen(VkExec *ex, const GfxShader *vs) {
+    float lo[2], hi[2];
+    int ok = ui_ndc_rect(ex, lo, hi);
+    int full = ok && lo[0] <= -0.99f && hi[0] >= 0.99f && lo[1] <= -0.99f && hi[1] >= 0.99f;
+    if (vk_dump_armed)   // with an F9 dump, each UI draw's rectangle, to tell which draws cover the screen
+        rt_log("ui draw: vs %016llx c3 %llu bytes, x %.3f..%.3f y %.3f..%.3f%s%s", (unsigned long long)shader_hash(vs),
+               (unsigned long long)ex->ubo[NVN_STAGE_VS][0].size, lo[0], hi[0], lo[1], hi[1], ok ? "" : " (unreadable)",
+               full ? " full screen" : "");
+    return full;
 }
 
 static int ui_fit_for(VkExec *ex, const GfxShader *vs, const GfxShader *fs) {
@@ -2318,7 +2331,7 @@ static int ui_fit_for(VkExec *ex, const GfxShader *vs, const GfxShader *fs) {
         ui_img = img;
         return 0;
     }
-    return img && img == ui_img && shader_hash(vs) != SV_FULLSCREEN_VS && !ui_full_screen(ex);
+    return img && img == ui_img && shader_hash(vs) != SV_FULLSCREEN_VS && !ui_full_screen(ex, vs);
 }
 
 static VkViewport draw_viewport(VkExec *ex) {
