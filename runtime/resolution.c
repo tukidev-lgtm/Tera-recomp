@@ -240,12 +240,9 @@ static void sv_decide(void) {
         rt_log("resolution: TOTK_OUTPUT_RES=%s is not <width>x<height> in 1280x720..7680x4320; 1920x1080", o);
         return;
     }
-    if (!res_is_16x9(w, h)) {
-        unsigned fw = w, fh = (unsigned)((uint64_t)w * 9 / 16);
-        if (fh > h) fh = h, fw = (unsigned)((uint64_t)h * 16 / 9);
-        rt_log("resolution: %ux%u is not 16:9, which Scarlet and Violet need; %ux%u", w, h, fw & ~1u, fh & ~1u);
-        w = fw, h = fh;
-    }
+    // Another shape than 16:9: the window, the scene and the UI targets all take the page's size (set svres), but the
+    // camera and the UI layouts are still the game's 16:9 ones (feature/sv-aspect, being worked on).
+    if (!res_is_16x9(w, h)) rt_log("resolution: %ux%u is not 16:9; the camera and the UI keep the game's 16:9", w, h);
     SV.w = w & ~1u, SV.h = h & ~1u;
     // TOTK_RENDER_SCALE: above 100% the whole picture is drawn larger (the UI with it) and the present shrinks it to the
     // window; below, the scene is drawn smaller inside the game's targets and the game enlarges it, as for its dynamic
