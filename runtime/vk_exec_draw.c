@@ -2330,13 +2330,15 @@ static int ui_ndc_rect(VkExec *ex, float lo[2], float hi[2]) {
 //    draw before it went, the pane it is written on.
 // A frame's groups are only known once it is drawn, so a draw goes where the draw at its place in the order went in
 // the frame before, when that was the same kind of draw near the same spot (the minimap turns with the camera), else
-// by its own rectangle.
+// where the element draw before it that it touches went (a name plate sliding in over its text box), else by its own
+// rectangle.
 #define UI_MAX 1024
 enum { UI_NONE, UI_TEXT, UI_BAND, UI_ELEM, UI_LARGE };   // kinds of UI draws
 typedef struct { float lo[2], hi[2]; int kind; } UiRect;
 static struct {
     UiRect cur[UI_MAX], prev[UI_MAX];
-    int place[UI_MAX];            // where each draw of the previous frame went
+    int place[UI_MAX];            // where each draw of the previous frame went, by its group
+    int now[UI_MAX];              // where each draw of this frame went
     int ncur, nprev, menu, last;  // menu: a full-screen draw this frame; last: the place of the draw before
 } UI;
 
@@ -2431,9 +2433,13 @@ static int ui_place(VkExec *ex, const GfxShader *vs) {
                (r.kind == UI_LARGE || (fabsf(q->lo[0] + q->hi[0] - r.lo[0] - r.hi[0]) < 0.3f &&
                                        fabsf(q->lo[1] + q->hi[1] - r.lo[1] - r.hi[1]) < 0.3f))) {
         place = UI.place[i], from_prev = 1;
-    } else {
-        place = r.kind == UI_ELEM ? ui_side(r.lo, r.hi) : 0;
+    } else {   // new or moved: with the element draw before it that it touches (a name plate on its text box), else alone
+        place = -1;
+        for (int k = i - 1; i >= 0 && k >= 0 && k >= i - 16 && place < 0; k--)
+            if (UI.cur[k].kind == UI_ELEM && ui_touch(&UI.cur[k], &r)) place = UI.now[k];
+        if (place < 0) place = r.kind == UI_ELEM ? ui_side(r.lo, r.hi) : 0;
     }
+    if (i >= 0) UI.now[i] = place;
     UI.last = place;
     if (vk_dump_armed)   // with an F9 dump, each UI draw's rectangle and where it went
         rt_log("ui draw %d: vs %016llx c3 %llu bytes, x %.3f..%.3f y %.3f..%.3f kind %d place %d%s%s", i,
