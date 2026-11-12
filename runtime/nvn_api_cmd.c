@@ -1133,7 +1133,7 @@ NVN_API(nvnCommandBufferSetPolygonOffsetClamp) {
     *REC(cmd_of(c), OP_POLY_OFFSET, p_poly_offset) = (p_poly_offset){arg_s(c, 0), arg_s(c, 1), arg_s(c, 2)};
 }
 // TOTK_LOG_INSTANCED=<n> (log_instanced, a diagnostic): each distinct guest call chain that records an instanced draw
-// of at least n instances is logged once, with its vertex or index count and instances, the caller and up to 8 frames of
+// of at least n instances, or any indirect draw, is logged once, with its vertex or index count and instances, the caller and up to 8 frames of
 // the frame-pointer chain: to find the code that builds the instance lists of the game's grass and other many-instance
 // draws.
 static void log_instanced(const Cpu *c, int count, int instances) {
@@ -1142,7 +1142,7 @@ static void log_instanced(const Cpu *c, int count, int instances) {
         min = atoi(cfg_value("TOTK_LOG_INSTANCED"));
         if (min <= 0) min = 0;
     }
-    if (!min || instances < min) return;
+    if (!min || (instances >= 0 && instances < min)) return;
     uint64_t lr[9] = {c->x[30]}, fp = c->x[29];
     int n = 1;
     for (; n < 9 && fp && !(fp & 7) && plat_mem_readable(fp, 16); n++) {
@@ -1153,14 +1153,15 @@ static void log_instanced(const Cpu *c, int count, int instances) {
     }
     uint64_t key = 0xcbf29ce484222325ull;
     for (int i = 0; i < n; i++) key = (key ^ lr[i]) * 0x100000001b3ull;
-    static uint64_t seen[64];
+    static uint64_t seen[256];
     static int nseen;
     for (int i = 0; i < nseen; i++)
         if (seen[i] == key) return;
-    if (nseen == 64) return;
+    if (nseen == 256) return;
     seen[nseen++] = key;
     char d[160];
-    rt_log("instanced draw: %d vertices/indices x %d instances, from %s", count, instances, ldr_describe(lr[0], d, sizeof d));
+    if (instances < 0) rt_log("instanced draw: indirect, from %s", ldr_describe(lr[0], d, sizeof d));
+    else rt_log("instanced draw: %d vertices/indices x %d instances, from %s", count, instances, ldr_describe(lr[0], d, sizeof d));
     for (int i = 1; i < n; i++) rt_log("instanced draw   frame %d: %s", i, ldr_describe(lr[i], d, sizeof d));
 }
 
@@ -1219,6 +1220,7 @@ NVN_API(nvnCommandBufferDrawElementsIndirect) {
             }
         }
     }
+    log_instanced(c, 0, -1);
     *REC(cmd_of(c), OP_DRAW_IDX_IND, p_draw_idx_ind) = (p_draw_idx_ind){(int)arg_x(c, 1), (int)arg_x(c, 2), arg_x(c, 3), arg_x(c, 4)};
 }
 // void nvnCommandBufferDispatchCompute(NVNcommandBuffer *cmd, int x, int y, int z): caller = the game's return address
