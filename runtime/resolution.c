@@ -264,13 +264,20 @@ static void sv_decide(void) {
     }
 }
 
-// The render target pool for the size: 268 MiB times the pixels over 1920x1080 (never less), and with a shadow map size
-// of our own, room for 4 cascades of it in 32-bit depth, in whole MiB.
+// The render target pool for the size. The game takes what it gives this pool from the budget it spawns Pokémon from:
+// with 1328 MiB at 3840x2160 the field had none (the map still listed them), at 900 MiB one or two in an area, and at
+// 700-768 MiB as many as at 1920x1080. Less than about 640 MiB at 3840x2160 with a 4096 shadow map ran out at boot.
+// So the pool grows by little more than what the larger targets need: 35% of 268 MiB per extra 1920x1080 of pixels
+// (3840x2160: +281 MiB), and with a shadow map of our own, by its 4 cascades of 32-bit depth beyond the game's own
+// 2048x2048 (4096: +192 MiB); 741 MiB at 3840x2160 with a 4096 map. In whole MiB.
+#define SV_SHADOW_BASE 2048u
 static uint64_t sv_rt_mem(void) {
     sv_decide();
     uint64_t px = (uint64_t)SV.w * SV.h, base = (uint64_t)BASE_W * BASE_H;
-    uint64_t mem = px <= base ? SV_RT_MEM : SV_RT_MEM * px / base;
-    if (SV.shadow) mem += 4ull * 4 * SV.shadow * SV.shadow;
+    uint64_t mem = SV_RT_MEM;
+    if (px > base) mem += (uint64_t)((double)SV_RT_MEM * 0.35 * (double)(px - base) / (double)base);
+    if (SV.shadow > SV_SHADOW_BASE)
+        mem += 4ull * 4 * ((uint64_t)SV.shadow * SV.shadow - (uint64_t)SV_SHADOW_BASE * SV_SHADOW_BASE);
     return (mem + 0xfffff) & ~0xfffffull;
 }
 
