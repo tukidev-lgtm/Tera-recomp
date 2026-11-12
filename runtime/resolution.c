@@ -300,6 +300,15 @@ static void sv_res_init(void) {
     memcpy(page + 172, &SV.drs, sizeof SV.drs);
     uint32_t half_side = SV.shadow / 2;   // the field main+0x16dc200 reads is half the map's side
     memcpy(page + 176, &half_side, sizeof half_side);
+    // debug: every part of the game resolution is a set of its own; TERA_SV_OFF=win,ctl,... leaves those parts off
+    static const char *const parts[] = {"svwin", "svctl", "svdrs", "svshare", "svrt", "svhalf", "svmem"};
+    const char *off = getenv("TERA_SV_OFF");
+    for (size_t i = 0; i < sizeof parts / sizeof *parts; i++) {
+        int ps = rt_patch_set(parts[i]);
+        int skip = off && strstr(off, parts[i] + 2);
+        if (ps >= 0) rt_patch_switch(ps, !skip);
+        if (skip) rt_log("resolution: debug: %s left off (TERA_SV_OFF)", parts[i]);
+    }
     rt_patch_switch(set, 1);
     int shadow = rt_patch_set("svshadow");
     if (SV.shadow && shadow >= 0) rt_patch_switch(shadow, 1);
