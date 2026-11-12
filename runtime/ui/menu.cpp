@@ -676,6 +676,12 @@ static void tab_screen(float scale) {
     static const char *const dynres[] = {"game", "max"};
     const char *dynres_names[] = {menu_text(UI_MENU_DYNRES_GAME), menu_text(UI_MENU_DYNRES_MAX)};
     opt_choice_list("TOTK_DYNAMIC_RES", UI_MENU_DYNRES, dynres, dynres_names, 2, UI_MENU_DYNRES_DESC);
+    if (rt_game_version >= 400) {   // Scarlet and Violet (resolution.c sv_draw_init)
+        static const char *const dd[] = {"low", "medium", "high", "ultra"};
+        const char *dd_names[] = {menu_text(UI_MENU_DRAWDIST_LOW), menu_text(UI_MENU_DRAWDIST_MEDIUM),
+                                  menu_text(UI_MENU_DRAWDIST_HIGH), menu_text(UI_MENU_DRAWDIST_ULTRA)};
+        opt_choice_list("TOTK_DRAW_DISTANCE", UI_MENU_DRAWDIST, dd, dd_names, 4, UI_MENU_DRAWDIST_DESC);
+    }
     row_shadow_res();
     static const UiTextId up[] = {UI_MENU_UPSCALER_FSR, UI_MENU_UPSCALER_BILINEAR};
     opt_choice("TOTK_UPSCALER", UI_MENU_UPSCALER, up, 2, UI_MENU_UPSCALER_DESC);

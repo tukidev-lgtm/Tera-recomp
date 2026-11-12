@@ -278,6 +278,29 @@ static uint64_t sv_rt_mem(void) {
 
 static uint64_t sv_res_extra_bytes(void) { return ((sv_rt_mem() - SV_RT_MEM) + 0x1fffff) & ~0x1fffffull; }
 
+// Draw distance (TOTK_DRAW_DISTANCE, set svdraw): the scenery's detail and draw distances scaled as the game stores
+// them in the GPU culling table (recomp/patches-v400.txt). Medium is the game's own.
+static void sv_draw_init(void) {
+    static const struct { const char *name; float detail, draw; } level[] = {
+        {"low", 0.6f, 0.6f}, {"high", 2.0f, 2.0f}, {"ultra", 4.0f, 4.0f}};
+    const char *v = cfg_value("TOTK_DRAW_DISTANCE");
+    for (size_t i = 0; i < sizeof level / sizeof *level; i++) {
+        if (strcmp(v, level[i].name)) continue;
+        int set = rt_patch_set("svdraw");
+        uint8_t *page = rt_patch_page();
+        if (set < 0 || !page) {
+            rt_log("draw distance: the generated C has no svdraw patch set; the game's own");
+            return;
+        }
+        float f[2] = {level[i].detail, level[i].draw};
+        memcpy(page + 180, f, sizeof f);
+        rt_patch_switch(set, 1);
+        rt_log("draw distance: %s, detail models x%.1f, drawn x%.1f", v, f[0], f[1]);
+        return;
+    }
+    rt_log("draw distance: the game's own");
+}
+
 static void sv_res_init(void) {
     sv_decide();
     if (SV.w == BASE_W && SV.h == BASE_H && SV.drs == 1 && !SV.shadow) {
@@ -570,6 +593,7 @@ static void res_shadow_range(void) {
 void res_init(void) {
     if (RT_SV) {
         sv_res_init();
+        sv_draw_init();
         return;
     }
     res_shadow_range();
