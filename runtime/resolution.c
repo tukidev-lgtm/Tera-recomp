@@ -240,12 +240,10 @@ static void sv_decide(void) {
         rt_log("resolution: TOTK_OUTPUT_RES=%s is not <width>x<height> in 1280x720..7680x4320; 1920x1080", o);
         return;
     }
-    if (!res_is_16x9(w, h)) {
-        unsigned fw = w, fh = (unsigned)((uint64_t)w * 9 / 16);
-        if (fh > h) fh = h, fw = (unsigned)((uint64_t)h * 16 / 9);
-        rt_log("resolution: %ux%u is not 16:9, which Scarlet and Violet need; %ux%u", w, h, fw & ~1u, fh & ~1u);
-        w = fw, h = fh;
-    }
+    // Another shape than 16:9: the window, the scene and the UI targets all take the page's size (set svres), but the
+    // camera follows the shape on its own; the UI, laid out for 16:9, is drawn into a centred 16:9 rectangle
+    // (res_sv_ui_fit).
+    if (!res_is_16x9(w, h)) rt_log("resolution: %ux%u is not 16:9; the UI keeps a 16:9 rectangle in the middle", w, h);
     SV.w = w & ~1u, SV.h = h & ~1u;
     // TOTK_RENDER_SCALE: above 100% the whole picture is drawn larger (the UI with it) and the present shrinks it to the
     // window; below, the scene is drawn smaller inside the game's targets and the game enlarges it, as for its dynamic
@@ -629,6 +627,18 @@ void res_init(void) {
 float res_dlss_lod_bias(void) {
     decide();
     return R.dlss_k ? (float)log2(R.dlss_k) : 0.0f;
+}
+
+// Scarlet and Violet's game resolution is another shape than 16:9: the camera follows the shape on its own, but the
+// UI is laid out for 16:9 and would be stretched over the whole picture, so its draws go into the centred 16:9
+// rectangle (vk_exec_draw.c ui_fit_for).
+int res_sv_ui_fit(void) {
+    static int on = -1;
+    if (on < 0) {
+        on = 0;
+        if (RT_SV) sv_decide(), on = !res_is_16x9(SV.w, SV.h);
+    }
+    return on;
 }
 
 // 16:9 within 1% (1366x768 counts): the shape the game's own layouts and camera are made for.

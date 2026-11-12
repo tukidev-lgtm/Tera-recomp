@@ -283,6 +283,7 @@ void res_present(Cpu *c);                                  // nvnQueuePresentTex
 void res_sizes(unsigned out[2], unsigned scene[2]);      // the output and scene sizes in effect (the game's own
                                                            // until res_init switched the sets on)
 int res_is_16x9(unsigned w, unsigned h);                   // within 1% of 16:9 (the test res_init and romfs.c share)
+int res_sv_ui_fit(void);                   // Scarlet and Violet at another shape than 16:9: the UI keeps a centred 16:9
 int res_wants_wide_overlay(const unsigned out[2]);         // not 16:9 on a game version with the camera aspect patch
 int romfs_shaped_ready(unsigned w, unsigned h);            // romfs-patches-<w>x<h> has a manifest (romfs.c; works
                                                            // before fs_init)

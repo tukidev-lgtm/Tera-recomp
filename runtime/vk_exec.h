@@ -70,6 +70,8 @@ typedef struct VkExec {
     int has_vp;                          // a viewport was set; else the render area
     p_scissor scissor;                   // OP_SCISSOR (scissor 0)
     int has_scissor;                     // a scissor was set; else unbounded
+    int ui_fit;                          // the draw is Scarlet and Violet's UI at another shape than 16:9: its viewport
+                                         // and scissor go into a 16:9 rectangle (vk_exec_draw.c ui_place)
     float depth_range[2];                // OP_DEPTH_RANGE: overrides the viewports' near and far
     uint32_t st_vmask[2], st_wmask[2], st_ref[2];   // OP_STENCIL per face (0 front, 1 back): compare mask, write mask, ref
     float point_size;                    // OP_BIND_STATE kind 6: NVN point size for the support buffer; 0 = never set = 1
@@ -156,6 +158,7 @@ extern int vk_hdr_track;
 void vk_hdr_draw(VkExec *ex, const VkPipeInfo *info);
 // Scissor 0 clipped to the render area of the open pass; extent 0: nothing to draw.
 VkRect2D vk_exec_scissor(const VkExec *ex);
+void vk_exec_ui_rect(const VkExec *ex, float r[4]);
 void vk_exec_noatt_dims(const VkExec *ex, uint32_t *w, uint32_t *h);   // pass size when no attachment is set
 // 1: every target of the current pass (any 1: at least one, and not only the depth target while a colour target is
 // rendered for the first time) was rendered in the previous presented frame (per-frame targets); 0 otherwise, or when

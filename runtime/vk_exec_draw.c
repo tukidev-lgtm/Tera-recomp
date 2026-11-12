@@ -15,6 +15,7 @@
 // 9365-9488, 9489-9921, 10013-10079 @ b75be8cf (MIT, Copyright (c) 2026 jhaizhou); the uniform-buffer spans, texture and
 // sampler descriptor lookups and the dispatch flow follow LAS Recomp runtime/nvn/vulkan/exec.c:1851-1908, 2300-2516
 // @ da35b83a (MIT, Copyright (c) 2026 Peiikai). The support buffer layout is Ryujinx's SupportBuffer.cs (MIT).
+#include <math.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -2249,11 +2250,232 @@ static void bind_pipeline(VkExec *ex, VkPipelineBindPoint bp, VkPipeline p) {
     if (!k) B.st_valid = 0;
 }
 
+// Scarlet and Violet's UI at another shape than 16:9 (res_sv_ui_fit). Its layouts are 16:9 and fill the viewport, so
+// at 21:9 or 16:10 they come out stretched. The game draws its UI into the image its tone mapping composite writes
+// (fragment shader f19b88cdd55c1a08, a full-screen pass with vertex shader 966ac518942e1eba), after that composite;
+// draws into that image with another vertex shader get the centred 16:9 rectangle (vk_exec_ui_rect). The UI's own
+// offscreen textures (the minimap) are other images and keep their viewports, and so do the draws that cover the whole
+// screen (ui_place). Hashes as the F9 dump names shaders.
+#define SV_COMPOSITE_FS 0xf19b88cdd55c1a08ull
+#define SV_FULLSCREEN_VS 0x966ac518942e1ebaull
+
+static uint64_t shader_hash(const GfxShader *sh) {
+    static struct { const GfxShader *s; uint64_t h; } seen[1024];
+    static unsigned next;
+    for (unsigned i = 0; i < 1024; i++)
+        if (seen[i].s == sh) return seen[i].h;
+    uint64_t words = 0, h = 0xcbf29ce484222325ull;
+    const uint8_t *b = (const uint8_t *)gfx_shader_spirv(sh, &words);
+    for (uint64_t i = 0; b && i < words * 4; i++) h = (h ^ b[i]) * 0x100000001b3ull;
+    seen[next % 1024].s = sh, seen[next % 1024].h = h, next++;
+    return h;
+}
+
+// A UI draw that covers the whole screen (a menu's dimmed backdrop, a fade) keeps the game's viewport, so it still
+// covers the sides. Scarlet and Violet's UI is NintendoWare's ui2d: every vertex shader of it reads its vertex
+// uniform block 0 (c3) the same way, a unit quad vertex (x, y) placed at (x * c3[33].x + c3[33].z,
+// -y * c3[33].y + c3[33].w), moved by the 3x4 model view in c3[4..6] and projected by c3[0..3]. Its four corners in
+// normalised device coordinates tell whether the draw reaches every edge.
+static int ui_read_c3(VkExec *ex, float c3[34][4]) {
+    const p_bind_buf *b = &ex->ubo[NVN_STAGE_VS][0];
+    size_t n = 34 * 16;
+    if (!b->addr || b->size < n) return 0;
+    const uint8_t *snap = vk_usnap_bytes(b->addr, n);
+    VkMemSpan sp;
+    if (snap) memcpy(c3, snap, n);
+    else if (vk_mem_resolve(b->addr, n, &sp)) memcpy(c3, (const void *)(uintptr_t)b->addr, n);
+    else return 0;
+    upd_apply(ex, b->addr, (uint8_t *)c3, n);
+    return 1;
+}
+
+// The draw's rectangle in normalised device coordinates, lo and hi per axis; 0 when its uniform block is not readable.
+static int ui_ndc_rect(VkExec *ex, float lo[2], float hi[2]) {
+    float c[34][4];
+    lo[0] = lo[1] = 1e30f, hi[0] = hi[1] = -1e30f;
+    if (!ui_read_c3(ex, c)) return 0;
+    for (int k = 0; k < 4; k++) {
+        float v[4] = {(k & 1) * c[33][0] + c[33][2], -(float)(k >> 1) * c[33][1] + c[33][3], 0, 1}, m[4], p[4];
+        for (int i = 0; i < 3; i++) m[i] = c[4 + i][0] * v[0] + c[4 + i][1] * v[1] + c[4 + i][2] * v[2] + c[4 + i][3];
+        m[3] = 1;
+        for (int i = 0; i < 4; i++) p[i] = c[i][0] * m[0] + c[i][1] * m[1] + c[i][2] * m[2] + c[i][3] * m[3];
+        if (!(p[3] > 1e-6f || p[3] < -1e-6f)) return 0;
+        for (int i = 0; i < 2; i++) {
+            float d = p[i] / p[3];
+            if (d < lo[i]) lo[i] = d;
+            if (d > hi[i]) hi[i] = d;
+        }
+    }
+    return 1;
+}
+
+// Where a UI draw goes (ex->ui_fit): 0 the game's viewport, stretched over the whole picture; else
+// 1 | (horizontal + 1) << 1 | 1 << 3, a 16:9 rectangle at the left (-1), in the middle (0) or at the right (1)
+// (vk_exec_ui_rect). Up and down it stays centred: 16:10 adds little room there.
+//
+// The HUD's elements keep to their side, as the minimap on the right, and the rest of the UI stays centred. An element
+// is several draws, and its parts must move together, so the draws are taken in groups (ui_frame_end):
+//  - Small draws that touch, at most 16 draws apart, make an element (a banner's two ends and then its middle; the
+//    minimap's disc, icons and ring). It goes to the side of the layout's outer third it sits in, else in the middle;
+//    one wider than two thirds stays in the middle.
+//  - Large draws (a sixth of the screen or more) are the parts of an element that a mask cuts: the minimap's map
+//    tiles, rotated with the camera and reaching past the screen's edges, cut to the disc by a mask. Touching large
+//    draws make one group, which goes with the element it touches nearest in the draw order (the disc right after
+//    them), or keeps the game's viewport when it touches none.
+//  - A band from edge to edge (a battle's letterbox bars and the shade over them as it begins), a draw that covers the
+//    whole screen and draws that are not ui2d (no rectangle on screen in c3) keep the game's viewport.
+//  - A draw that covers the whole screen (a menu's dimmed backdrop) makes the frame a menu: everything else stays in
+//    the middle, a window's pieces must not part, and the big map's tiles stay in its window.
+//  - Text (the font's vertex shader takes its glyphs from a storage buffer and has no rectangle in c3) goes where the
+//    draw before it went, the pane it is written on.
+// A frame's groups are only known once it is drawn, so a draw goes where the draw at its place in the order went in
+// the frame before, when that was the same kind of draw near the same spot (the minimap turns with the camera), else
+// where the element draw before it that it touches went (a name plate sliding in over its text box), else by its own
+// rectangle.
+#define UI_MAX 1024
+enum { UI_NONE, UI_TEXT, UI_BAND, UI_ELEM, UI_LARGE };   // kinds of UI draws
+typedef struct { float lo[2], hi[2]; int kind; } UiRect;
+static struct {
+    UiRect cur[UI_MAX], prev[UI_MAX];
+    int place[UI_MAX];            // where each draw of the previous frame went, by its group
+    int now[UI_MAX];              // where each draw of this frame went
+    int ncur, nprev, menu, last;  // menu: a full-screen draw this frame; last: the place of the draw before
+} UI;
+
+#define UI_MIDDLE (1 | 1 << 1 | 1 << 3)
+
+static int ui_full(const float lo[2], const float hi[2]) {
+    return lo[0] <= -0.99f && hi[0] >= 0.99f && lo[1] <= -0.99f && hi[1] >= 0.99f;
+}
+
+static int ui_kind(int ok, int text, const float lo[2], const float hi[2]) {
+    if (text) return UI_TEXT;
+    if (!ok || !(lo[0] > -10 && hi[0] < 10 && lo[1] > -10 && hi[1] < 10)) return UI_NONE;   // not ui2d's block
+    float w = hi[0] - lo[0], h = hi[1] - lo[1];
+    if (w > 1.9f || h > 1.9f) return UI_BAND;   // from edge to edge, or nearly (a battle's corner brackets' long lines)
+    return w * h > 4.0f / 6 ? UI_LARGE : UI_ELEM;
+}
+
+static int ui_side(const float lo[2], const float hi[2]) {
+    if (UI.menu || hi[0] - lo[0] > 4.0f / 3) return UI_MIDDLE;
+    float cx = (lo[0] + hi[0]) * 0.5f;
+    int ax = cx > 1.0f / 3 ? 1 : cx < -1.0f / 3 ? -1 : 0;
+    return 1 | (ax + 1) << 1 | 1 << 3;
+}
+
+static int ui_touch(const UiRect *a, const UiRect *b) {
+    const float e = 0.02f;
+    return a->lo[0] <= b->hi[0] + e && b->lo[0] <= a->hi[0] + e && a->lo[1] <= b->hi[1] + e && b->lo[1] <= a->hi[1] + e;
+}
+
+static int ui_root(int *par, int x) {
+    while (par[x] != x) par[x] = par[par[x]], x = par[x];
+    return x;
+}
+
+// The frame's draws are all in: its groups and their places, for the next frame.
+static void ui_frame_end(void) {
+    static int par[UI_MAX], near[UI_MAX], dist[UI_MAX], gplace[UI_MAX];
+    static float glo[UI_MAX][2], ghi[UI_MAX][2];
+    int n = UI.ncur;
+    const UiRect *c = UI.cur;
+    for (int j = 0; j < n; j++) {
+        par[j] = j;
+        int kj = c[j].kind;
+        if (kj != UI_ELEM && kj != UI_LARGE) continue;
+        for (int k = j > 32 ? j - 32 : 0; k < j; k++)
+            if (c[k].kind == kj && (kj == UI_LARGE || j - k <= 16) && ui_touch(&c[k], &c[j])) par[ui_root(par, j)] = ui_root(par, k);
+    }
+    for (int j = 0; j < n; j++) glo[j][0] = glo[j][1] = 1e30f, ghi[j][0] = ghi[j][1] = -1e30f, near[j] = -1;
+    for (int j = 0; j < n; j++) {
+        if (c[j].kind != UI_ELEM) continue;
+        int g = ui_root(par, j);
+        for (int k = 0; k < 2; k++) glo[g][k] = fminf(glo[g][k], c[j].lo[k]), ghi[g][k] = fmaxf(ghi[g][k], c[j].hi[k]);
+    }
+    for (int j = 0; j < n; j++)
+        if (c[j].kind == UI_ELEM && ui_root(par, j) == j) gplace[j] = ui_side(glo[j], ghi[j]);
+    // each group of large draws: the element draw it touches nearest in the order
+    for (int j = 0; j < n; j++) dist[j] = 1 << 30;
+    for (int j = 0; j < n; j++) {
+        if (c[j].kind != UI_LARGE) continue;
+        int g = ui_root(par, j);
+        for (int k = 0; k < n; k++) {
+            if (c[k].kind != UI_ELEM || abs(k - j) >= dist[g] || !ui_touch(&c[k], &c[j])) continue;
+            dist[g] = abs(k - j), near[g] = k;
+        }
+    }
+    for (int j = 0; j < n; j++) {
+        int k = c[j].kind, g = ui_root(par, j);
+        UI.place[j] = k == UI_ELEM    ? gplace[g]
+                      : k == UI_LARGE ? (UI.menu ? UI_MIDDLE : near[g] >= 0 ? gplace[ui_root(par, near[g])] : 0)
+                      : k == UI_TEXT  ? (j ? UI.place[j - 1] : 0)
+                                      : 0;
+    }
+    memcpy(UI.prev, UI.cur, sizeof(UiRect) * (size_t)n);
+    UI.nprev = n, UI.ncur = 0, UI.menu = 0, UI.last = 0;
+}
+
+static int ui_place(VkExec *ex, const GfxShader *vs) {
+    UiRect r = {{0, 0}, {0, 0}, 0};
+    int ok = ui_ndc_rect(ex, r.lo, r.hi);
+    r.kind = ui_kind(ok, !ok && ex->ubo[NVN_STAGE_VS][0].size < 34 * 16, r.lo, r.hi);
+    if (r.kind == UI_BAND && ui_full(r.lo, r.hi)) UI.menu = 1;
+    int i = UI.ncur < UI_MAX ? UI.ncur++ : -1, place, from_prev = 0;
+    if (i >= 0) UI.cur[i] = r;
+    const UiRect *q = i >= 0 && i < UI.nprev ? &UI.prev[i] : NULL;
+    if (r.kind == UI_TEXT) {
+        place = UI.last;
+    } else if (r.kind == UI_NONE || r.kind == UI_BAND) {
+        place = 0;
+    } else if (UI.menu) {
+        place = UI_MIDDLE;
+    } else if (q && q->kind == r.kind &&
+               (r.kind == UI_LARGE || (fabsf(q->lo[0] + q->hi[0] - r.lo[0] - r.hi[0]) < 0.3f &&
+                                       fabsf(q->lo[1] + q->hi[1] - r.lo[1] - r.hi[1]) < 0.3f))) {
+        place = UI.place[i], from_prev = 1;
+    } else {   // new or moved: with the element draw before it that it touches (a name plate on its text box), else alone
+        place = -1;
+        for (int k = i - 1; i >= 0 && k >= 0 && k >= i - 16 && place < 0; k--)
+            if (UI.cur[k].kind == UI_ELEM && ui_touch(&UI.cur[k], &r)) place = UI.now[k];
+        if (place < 0) place = r.kind == UI_ELEM ? ui_side(r.lo, r.hi) : 0;
+    }
+    if (i >= 0) UI.now[i] = place;
+    UI.last = place;
+    if (vk_dump_armed)   // with an F9 dump, each UI draw's rectangle and where it went
+        rt_log("ui draw %d: vs %016llx c3 %llu bytes, x %.3f..%.3f y %.3f..%.3f kind %d place %d%s%s", i,
+               (unsigned long long)shader_hash(vs), (unsigned long long)ex->ubo[NVN_STAGE_VS][0].size, r.lo[0], r.hi[0],
+               r.lo[1], r.hi[1], r.kind, place, from_prev ? " (as the frame before)" : "", UI.menu ? " menu" : "");
+    return place;
+}
+
+static int ui_fit_for(VkExec *ex, const GfxShader *vs, const GfxShader *fs) {
+    static VkImage ui_img;
+    static const GfxShader *comp_fs;   // the composite's, found by its hash once
+    if (!res_sv_ui_fit() || !ex->pass_ncolor) return 0;
+    VkImage img = ex->color[0].image;
+    if (fs && !comp_fs && shader_hash(fs) == SV_COMPOSITE_FS) comp_fs = fs;
+    if (fs && fs == comp_fs) {   // a new frame's UI begins
+        static int logged;
+        if (!logged++) rt_log("vk_exec: Scarlet and Violet's UI keeps 16:9 proportions, the HUD at the sides");
+        ui_frame_end();
+        ui_img = img;
+        return 0;
+    }
+    if (!img || img != ui_img || shader_hash(vs) == SV_FULLSCREEN_VS) return 0;
+    return ui_place(ex, vs);
+}
+
 static VkViewport draw_viewport(VkExec *ex) {
     float x = 0, y = 0, w = (float)ex->pass_w, h = (float)ex->pass_h;
     if (ex->has_vp) {
         float k = ex->pass_scale > 1 ? (float)ex->pass_scale : 1.0f;
         x = ex->vp[0][0] * k, y = ex->vp[0][1] * k, w = ex->vp[0][2] * k, h = ex->vp[0][3] * k;
+    }
+    if (ex->ui_fit) {   // into the centred 16:9 rectangle (ui_fit_for)
+        float r[4];
+        vk_exec_ui_rect(ex, r);
+        float sx = r[2] / (float)ex->pass_w, sy = r[3] / (float)ex->pass_h;
+        x = r[0] + x * sx, y = r[1] + y * sy, w *= sx, h *= sy;
     }
     if (w < 1) w = 1;
     if (h < 1) h = 1;
@@ -2627,6 +2849,8 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
     }
     if (!vs || (has_fs && !fs)) return PD_SKIP(5);
     if (vk_dlaa_skip_draw(ex, fs)) return PD_SKIP(6);   // the game's FXAA off, or its scaling replaced by DLSS (vk_dlaa.c)
+    int fit = ui_fit_for(ex, vs, fs);
+    if (fit != ex->ui_fit) ex->ui_fit = fit, ex->dirty |= VK_EXEC_DIRTY_VIEWPORT | VK_EXEC_DIRTY_SCISSOR;
     uint32_t fbl = feedback_prepare(ex, fs);
     VkPipeState s = ex->pipe;
     s.vs = vs, s.fs = fs;
