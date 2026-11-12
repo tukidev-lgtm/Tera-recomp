@@ -491,9 +491,17 @@ static void tfr_note(const VkExecTarget *t, uint64_t stamp) {
     if (e->last != stamp) e->prev = e->last, e->last = stamp;
 }
 
+// Rendered in the frame before (TotK), or in one of the 600 frames before (Scarlet and Violet: about ten seconds). A
+// cutscene or a loading screen leaves the field's targets alone for a while; drawn into again at the next scene they
+// counted as one-shot, and every draw of that frame waited for its shaders one after another (the first run's
+// translations, 8.4 s in one frame of the opening class cutscene, issue #8's log). Targets drawn once (volumes,
+// LUTs) are never rendered before and still wait.
+#define TFR_RECENT_SV 600
 static int tfr_recent(const VkExecTarget *t, uint64_t stamp) {
     const TargetFrames *e = tfr_slot(t);
-    return tfr_match(e, t) && (e->last == stamp ? e->prev : e->last) == stamp - 1;
+    uint64_t before = e->last == stamp ? e->prev : e->last;
+    if (!tfr_match(e, t) || !before) return 0;
+    return RT_SV ? stamp - before <= TFR_RECENT_SV : before == stamp - 1;
 }
 
 // No frame before the current one rendered the target (a slot another subresource took reads the same).

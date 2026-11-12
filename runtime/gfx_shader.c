@@ -388,12 +388,19 @@ static int child_exchange(Svc *v, const char *line, char *reply, size_t reply_si
     return ok;
 }
 
-// Children allowed at run time: TOTK_XLATE_PROCS, default 2.
+// Children allowed at run time: TOTK_XLATE_PROCS, default 2. Scarlet and Violet prepare no shaders before play, so
+// their first run translates every shader as it is met, scene after scene: a quarter of the logical processors
+// (2 to 6), which keeps the game's own threads their cores.
 static int svc_runtime_limit(void) {
     static volatile int32_t n;
     if (!n) {
         const char *e = cfg_get("TOTK_XLATE_PROCS");
-        int v = e && *e ? atoi(e) : 2;
+        int def = 2;
+        if (RT_SV) {
+            def = (int)(plat_cpu_count() / 4);
+            def = def < 2 ? 2 : def > 6 ? 6 : def;
+        }
+        int v = e && *e ? atoi(e) : def;
         plat_xchg32(&n, v < 1 ? 1 : v > MAX_SVC ? MAX_SVC : v);
     }
     return (int)n;
