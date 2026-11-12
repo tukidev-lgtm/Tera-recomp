@@ -711,12 +711,27 @@ VkBuffer vk_exec_inline_buffer(VkDeviceSize size) {
     return t->b;
 }
 
+// The centred 16:9 rectangle of the render area, x, y, width and height in pixels: where Scarlet and Violet's UI goes
+// at another shape (ex->ui_fit), so its 16:9 layout keeps its proportions.
+void vk_exec_ui_rect(const VkExec *ex, float r[4]) {
+    float w = (float)ex->pass_w, h = (float)ex->pass_h, fw = w, fh = w * 9.0f / 16.0f;
+    if (fh > h) fh = h, fw = h * 16.0f / 9.0f;
+    r[0] = (w - fw) * 0.5f, r[1] = (h - fh) * 0.5f, r[2] = fw, r[3] = fh;
+}
+
 VkRect2D vk_exec_scissor(const VkExec *ex) {
     int64_t w = ex->pass_w, h = ex->pass_h;
     if (!ex->has_scissor) return (VkRect2D){{0, 0}, {(uint32_t)w, (uint32_t)h}};
     int64_t k = ex->pass_scale > 1 ? ex->pass_scale : 1;
     int64_t x0 = ex->scissor.x * k, y0 = ex->scissor.y * k;
     int64_t x1 = x0 + (int64_t)ex->scissor.w * k, y1 = y0 + (int64_t)ex->scissor.h * k;
+    if (ex->ui_fit) {   // the UI's scissor moves with its viewport into the centred 16:9 rectangle (vk_exec_ui_rect)
+        float r[4];
+        vk_exec_ui_rect(ex, r);
+        float sx = r[2] / (float)w, sy = r[3] / (float)h;
+        x0 = (int64_t)(r[0] + x0 * sx), x1 = (int64_t)(r[0] + x1 * sx + 0.999f);
+        y0 = (int64_t)(r[1] + y0 * sy), y1 = (int64_t)(r[1] + y1 * sy + 0.999f);
+    }
     if (x0 < 0) x0 = 0;
     if (y0 < 0) y0 = 0;
     if (x1 > w) x1 = w;
@@ -739,6 +754,7 @@ static int whole_target(const VkExec *ex, const VkExecTarget *t) {
 }
 
 static void clear_attachment(VkExec *ex, const VkClearAttachment *a) {
+    if (ex->ui_fit) ex->ui_fit = 0, ex->dirty |= VK_EXEC_DIRTY_VIEWPORT | VK_EXEC_DIRTY_SCISSOR;   // a clear is never the UI
     vk_exec_pass_begin(ex);
     VkClearRect cr = {vk_exec_scissor(ex), 0, ex->pass_layers};
     if (!cr.rect.extent.width || !cr.rect.extent.height) return;

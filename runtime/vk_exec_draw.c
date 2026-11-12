@@ -2249,11 +2249,49 @@ static void bind_pipeline(VkExec *ex, VkPipelineBindPoint bp, VkPipeline p) {
     if (!k) B.st_valid = 0;
 }
 
+// Scarlet and Violet's UI at another shape than 16:9 (res_sv_ui_fit). Its layouts are 16:9 and fill the viewport, so
+// at 21:9 or 16:10 they come out stretched. The game draws its UI into the image its tone mapping composite writes
+// (fragment shader f19b88cdd55c1a08, a full-screen pass with vertex shader 966ac518942e1eba), after that composite;
+// draws into that image with another vertex shader get the centred 16:9 rectangle (vk_exec_ui_rect). The UI's own
+// offscreen textures (the minimap) are other images and keep their viewports. Hashes as the F9 dump names shaders.
+#define SV_COMPOSITE_FS 0xf19b88cdd55c1a08ull
+#define SV_FULLSCREEN_VS 0x966ac518942e1ebaull
+
+static uint64_t shader_hash(const GfxShader *sh) {
+    static struct { const GfxShader *s; uint64_t h; } seen[1024];
+    static unsigned next;
+    for (unsigned i = 0; i < 1024; i++)
+        if (seen[i].s == sh) return seen[i].h;
+    uint64_t words = 0, h = 0xcbf29ce484222325ull;
+    const uint8_t *b = (const uint8_t *)gfx_shader_spirv(sh, &words);
+    for (uint64_t i = 0; b && i < words * 4; i++) h = (h ^ b[i]) * 0x100000001b3ull;
+    seen[next % 1024].s = sh, seen[next % 1024].h = h, next++;
+    return h;
+}
+
+static int ui_fit_for(VkExec *ex, const GfxShader *vs, const GfxShader *fs) {
+    static VkImage ui_img;
+    if (!res_sv_ui_fit() || !ex->pass_ncolor) return 0;
+    VkImage img = ex->color[0].image;
+    if (fs && shader_hash(fs) == SV_COMPOSITE_FS) {
+        if (ui_img != img) rt_log("vk_exec: Scarlet and Violet's UI goes into a centred 16:9 rectangle");
+        ui_img = img;
+        return 0;
+    }
+    return img && img == ui_img && shader_hash(vs) != SV_FULLSCREEN_VS;
+}
+
 static VkViewport draw_viewport(VkExec *ex) {
     float x = 0, y = 0, w = (float)ex->pass_w, h = (float)ex->pass_h;
     if (ex->has_vp) {
         float k = ex->pass_scale > 1 ? (float)ex->pass_scale : 1.0f;
         x = ex->vp[0][0] * k, y = ex->vp[0][1] * k, w = ex->vp[0][2] * k, h = ex->vp[0][3] * k;
+    }
+    if (ex->ui_fit) {   // into the centred 16:9 rectangle (ui_fit_for)
+        float r[4];
+        vk_exec_ui_rect(ex, r);
+        float sx = r[2] / (float)ex->pass_w, sy = r[3] / (float)ex->pass_h;
+        x = r[0] + x * sx, y = r[1] + y * sy, w *= sx, h *= sy;
     }
     if (w < 1) w = 1;
     if (h < 1) h = 1;
@@ -2627,6 +2665,8 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
     }
     if (!vs || (has_fs && !fs)) return PD_SKIP(5);
     if (vk_dlaa_skip_draw(ex, fs)) return PD_SKIP(6);   // the game's FXAA off, or its scaling replaced by DLSS (vk_dlaa.c)
+    int fit = ui_fit_for(ex, vs, fs);
+    if (fit != ex->ui_fit) ex->ui_fit = fit, ex->dirty |= VK_EXEC_DIRTY_VIEWPORT | VK_EXEC_DIRTY_SCISSOR;
     uint32_t fbl = feedback_prepare(ex, fs);
     VkPipeState s = ex->pipe;
     s.vs = vs, s.fs = fs;
