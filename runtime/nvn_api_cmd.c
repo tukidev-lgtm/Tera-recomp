@@ -987,7 +987,10 @@ NVN_API(nvnCommandBufferSetRenderEnableConditional) {
     r->addr = arg_x(c, 2);
 }
 // void nvnCommandBufferBindProgram(NVNcommandBuffer *cmd, const NVNprogram *program, int stages)
+static _Thread_local uint64_t cur_prog_serial;   // log_instanced: the program the thread bound last
 NVN_API(nvnCommandBufferBindProgram) {
+    const prog_t *p = arg_p(c, 1);
+    cur_prog_serial = p ? p->serial : 0;
     *REC(cmd_of(c), OP_BIND_PROGRAM, p_bind_program) = (p_bind_program){arg_p(c, 1), (int)arg_x(c, 2)};
 }
 // void nvnCommandBufferBind{Blend,Color,ChannelMask,Multisample,Polygon,DepthStencil}State(NVNcommandBuffer *cmd,
@@ -1132,10 +1135,10 @@ NVN_API(nvnCommandBufferSetStencilRef) {
 NVN_API(nvnCommandBufferSetPolygonOffsetClamp) {
     *REC(cmd_of(c), OP_POLY_OFFSET, p_poly_offset) = (p_poly_offset){arg_s(c, 0), arg_s(c, 1), arg_s(c, 2)};
 }
-// TOTK_LOG_INSTANCED=<n> (log_instanced, a diagnostic): each distinct guest call chain that records an instanced draw
-// of at least n instances, or any indirect draw, is logged once, with its vertex or index count and instances, the caller and up to 8 frames of
-// the frame-pointer chain: to find the code that builds the instance lists of the game's grass and other many-instance
-// draws.
+// TOTK_LOG_INSTANCED=<n> (log_instanced, a diagnostic): each distinct guest call chain and program (by its serial, as
+// the F9 dump's "prog" names it) that records a draw of at least n instances (1: every draw), or an indirect draw, is
+// logged once, with its vertex or index count and instances, the caller and up to 8 frames of the frame-pointer
+// chain: to find the code behind a given shader's draws (the game's grass) from an F9 dump of the same run.
 static void log_instanced(const Cpu *c, int count, int instances) {
     static int min = -1;
     if (min < 0) {
@@ -1151,22 +1154,25 @@ static void log_instanced(const Cpu *c, int count, int instances) {
         if (next <= fp || next - fp > (64u << 20)) { n++; break; }
         fp = next;
     }
-    uint64_t key = 0xcbf29ce484222325ull;
+    uint64_t key = (0xcbf29ce484222325ull ^ cur_prog_serial) * 0x100000001b3ull;
     for (int i = 0; i < n; i++) key = (key ^ lr[i]) * 0x100000001b3ull;
-    static uint64_t seen[256];
+    static uint64_t seen[2048];
     static int nseen;
     for (int i = 0; i < nseen; i++)
         if (seen[i] == key) return;
-    if (nseen == 256) return;
+    if (nseen == 2048) return;
     seen[nseen++] = key;
     char d[160];
-    if (instances < 0) rt_log("instanced draw: indirect, from %s", ldr_describe(lr[0], d, sizeof d));
-    else rt_log("instanced draw: %d vertices/indices x %d instances, from %s", count, instances, ldr_describe(lr[0], d, sizeof d));
+    if (instances < 0) rt_log("instanced draw: prog %llu indirect, from %s", (unsigned long long)cur_prog_serial,
+                              ldr_describe(lr[0], d, sizeof d));
+    else rt_log("instanced draw: prog %llu %d vertices/indices x %d instances, from %s", (unsigned long long)cur_prog_serial,
+                count, instances, ldr_describe(lr[0], d, sizeof d));
     for (int i = 1; i < n; i++) rt_log("instanced draw   frame %d: %s", i, ldr_describe(lr[i], d, sizeof d));
 }
 
 // void nvnCommandBufferDrawArrays(NVNcommandBuffer *cmd, NVNdrawPrimitive prim, int first, int count)
 NVN_API(nvnCommandBufferDrawArrays) {
+    log_instanced(c, (int)arg_x(c, 3), 1);
     *REC(cmd_of(c), OP_DRAW, p_draw) = (p_draw){(int)arg_x(c, 1), (int)arg_x(c, 2), (int)arg_x(c, 3), 0, 1};
 }
 // void nvnCommandBufferDrawArraysInstanced(NVNcommandBuffer *cmd, NVNdrawPrimitive prim, int first, int count,
@@ -1181,12 +1187,14 @@ NVN_API(nvnCommandBufferDrawArraysInstanced) {
 // NVNbufferAddress indices)
 NVN_API(nvnCommandBufferDrawElements) {
     cmd_t *o = cmd_of(c);
+    log_instanced(c, (int)arg_x(c, 3), 1);
     *REC(o, OP_DRAW_IDX, p_draw_idx) = (p_draw_idx){(int)arg_x(c, 1), (int)arg_x(c, 2), (int)arg_x(c, 3), 0, 0, 1, arg_x(c, 4)};
     hw_fix(o, 48);
 }
 // void nvnCommandBufferDrawElementsBaseVertex(..., NVNbufferAddress indices, int base_vertex)
 NVN_API(nvnCommandBufferDrawElementsBaseVertex) {
     cmd_t *o = cmd_of(c);
+    log_instanced(c, (int)arg_x(c, 3), 1);
     *REC(o, OP_DRAW_IDX, p_draw_idx) =
         (p_draw_idx){(int)arg_x(c, 1), (int)arg_x(c, 2), (int)arg_x(c, 3), (int)arg_x(c, 5), 0, 1, arg_x(c, 4)};
     hw_fix(o, 44);
