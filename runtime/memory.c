@@ -24,7 +24,7 @@
 #define STACK_OFF 0x10000000ull
 #define STACK_SIZE 0x10000000ull
 #define HEAP_OFF (STACK_OFF + STACK_SIZE + 0x10000000ull)
-#define HEAP_CAP (4 * GiB)    // without TOTK_TEX_HEAP_EXTRA_MB, which raises it by its own size (mem_init)
+#define HEAP_CAP (4 * GiB)    // without TOTK_TEX_HEAP_EXTRA_MB and a larger game resolution, which raise it by their own size (mem_init)
 #define ALIAS_SIZE (64 * GiB)
 #define ALIAS_ALIGN (4 * GiB)
 #define ALIAS_PAGES (ALIAS_SIZE / PAGE)
@@ -316,7 +316,7 @@ void mem_init(void) {
     L = (RtGuestLayout){
         .aslr = {low, RT_ADDRESS_LIMIT - low},
         .stack = {low + STACK_OFF, STACK_SIZE},
-        .heap = {low + HEAP_OFF, HEAP_CAP + res_tex_heap_extra_bytes()},
+        .heap = {low + HEAP_OFF, HEAP_CAP + res_tex_heap_extra_bytes() + res_heap_extra_bytes()},
         .alias = {alias, ALIAS_SIZE},
         .kernel = {RT_KERNEL_BASE, RT_KERNEL_SIZE},
         .hostfn = {RT_HOSTFN_BASE, RT_HOSTFN_SIZE},
@@ -356,8 +356,13 @@ uint32_t mem_set_heap_size(uint64_t size, uint64_t *addr) {
     plat_mutex_lock(&lock);
     if (size > L.heap.size || size % 0x200000 || size + image_bytes() > L.pool) {
         plat_mutex_unlock(&lock);
+        rt_log("memory: SetHeapSize %llu MiB refused (cap %llu MiB, pool %llu MiB, images %llu MiB)",
+               (unsigned long long)(size >> 20), (unsigned long long)(L.heap.size >> 20),
+               (unsigned long long)(L.pool >> 20), (unsigned long long)(image_bytes() >> 20));
         return R_INVALID_STATE;
     }
+    static int told;
+    if (size > heap_size && told++ < 4) rt_log("memory: SetHeapSize %llu MiB", (unsigned long long)(size >> 20));
     if (size > heap_size) commit(L.heap.base + heap_size, size - heap_size, "heap");
     if (size < heap_size) decommit(L.heap.base + size, heap_size - size, "heap");
     heap_size = size;
