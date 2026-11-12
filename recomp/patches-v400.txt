@@ -22,8 +22,8 @@ site fps60 main 2b7a858 39c08154 52800014
 # width and +156 the height as floats, +160 the GPU memory for render targets in bytes (u32), +164 half the width and
 # +168 half the height (u32), +172 the render scale (float, at most 1), +176 half
 # the sun shadow map's side (u32, set svshadow), +180 the scale of the scenery's detail distances, +184 of its
-# draw distance, +188 of the objects' realizing and loading distances and +192 of their model culling distance (floats,
-# set svdraw).
+# draw distance, +188 of the objects' realizing and loading distances, +192 of their model culling distance and +196 of
+# the grass and tree fade distances (floats, set svdraw).
 set svres TERA_SVRES 0
 set svshadow TERA_SVSHADOW 0
 set svdraw TERA_SVDRAW 0
@@ -100,6 +100,17 @@ site svdraw main 2027858 bd400e60 bd400e60 @page:x9 bd40bd21 1e210800
 # A model's culling distance (its DistanceCulling, 10 when the data has none; main+0x2134328 reads it and
 # main+0x2134804 applies it). mov v0.16b, v8.16b -> adrp x9, page; ldr s0, [x9, #0xc0]; fmul s0, s8, s0
 site svdraw main 2134348 4ea81d00 @page:x9 bd40c120 1e200900
+# The grass and tree fade distances: main+0x162a0xx reads TreeNearBegin, TreeNearEnd, GrassNearBegin, GrassNearEnd,
+# TreeFarBegin and TreeFarEnd from the area's data into s8 and stores each in two of its tables, first at the sites
+# below. s8 is scaled in place there by the page's factor, so the second store takes the scaled value too. x9 and s0
+# are free (x9 is loaded before its next use). str s8, [x8, #0x40] -> adrp x9, page; ldr s0, [x9, #0xc4];
+# fmul s8, s8, s0; str s8, [x8, #0x40]
+site svdraw main 162a324 bd004108 @page:x9 bd40c520 1e200908 bd004108
+site svdraw main 162a5a0 bd004108 @page:x9 bd40c520 1e200908 bd004108
+site svdraw main 162a814 bd004108 @page:x9 bd40c520 1e200908 bd004108
+site svdraw main 162aa88 bd004108 @page:x9 bd40c520 1e200908 bd004108
+site svdraw main 162acfc bd004108 @page:x9 bd40c520 1e200908 bd004108
+site svdraw main 162af70 bd004108 @page:x9 bd40c520 1e200908 bd004108
 # The GPU memory the render targets come from (graphics config memorySize_CpuInvisible_GpuCached, which main+0x146e770
 # sets to 268 MiB when the data says 320 MiB): without more of it, a larger size runs out when the map opens.
 site svres main 146e770 52a21809 @page:x9 b940a129
