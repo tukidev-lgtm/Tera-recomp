@@ -2318,8 +2318,9 @@ static int ui_ndc_rect(VkExec *ex, float lo[2], float hi[2]) {
 // so the draws are taken in groups of touching rectangles (ui_frame_end). A frame's groups are only known once it
 // is drawn, so a draw goes where its group went in the frame before when it is the same draw (same place in the order,
 // same rectangle), else by its own rectangle.
-//  - A group that covers the whole screen (a menu's dimmed backdrop) makes the frame a menu: everything else stays
-//    centred, a window's pieces must not part. It keeps the game's viewport itself.
+//  - A draw that covers the whole screen (a menu's dimmed backdrop) makes the frame a menu: everything else stays
+//    centred, a window's pieces must not part, and the map's tiles that reach past the edges stay in its window. The
+//    backdrop keeps the game's viewport itself.
 //  - On the HUD an effect over the picture (a draw of a fifth of the screen or more, as the crouching overlay's rotated
 //    tiles, or a band from edge to edge, as a battle's letterbox bars) keeps the game's viewport too.
 //  - Otherwise a group in the outer third of the layout goes to that side; one wider than two thirds stays centred.
@@ -2347,10 +2348,10 @@ static int ui_effect(const float lo[2], const float hi[2]) {
 }
 
 static int ui_decide(const float lo[2], const float hi[2], int menu) {
-    int past = lo[0] < -1.01f || hi[0] > 1.01f || lo[1] < -1.01f || hi[1] > 1.01f;
     if (ui_full(lo, hi)) return 0;
-    if (ui_effect(lo, hi) && (!menu || past)) return 0;
-    if (menu || hi[0] - lo[0] > 4.0f / 3) return 1 | 1 << 1 | 1 << 3;
+    if (menu) return 1 | 1 << 1 | 1 << 3;   // the map's tiles reach past the edges but belong in its window
+    if (ui_effect(lo, hi)) return 0;
+    if (hi[0] - lo[0] > 4.0f / 3) return 1 | 1 << 1 | 1 << 3;
     float cx = (lo[0] + hi[0]) * 0.5f;
     int ax = cx > 1.0f / 3 ? 1 : cx < -1.0f / 3 ? -1 : 0;
     return 1 | (ax + 1) << 1 | 1 << 3;
