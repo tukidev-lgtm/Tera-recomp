@@ -1248,6 +1248,38 @@ static void tex_info_full(VkExec *ex, const GfxShaderRes *r, uint64_t h, int sto
 // fetch returns bit for bit. The copy is made outside render passes: at the end of every pass that has the source as
 // its depth target (vk_exec_sb_pass_end, after vkCmdEndRendering), so a pass that samples it sees the stencil as the
 // passes before it left it. A stencil view seen for the first time keeps the plain view until its first copy is made.
+// TOTK_DROP_VS=<hash>[,<hash>...] (drop_vs, a diagnostic): draws whose vertex shader has one of these SPIR-V hashes (as
+// the F9 dump names them, sh_<hash>.spv) are skipped, to find which shader draws something on screen. The hash of a
+// shader is taken once and kept by its pointer.
+static int drop_vs(const GfxShader *vs) {
+    static int n = -1;
+    static uint64_t want[32];
+    static struct { const GfxShader *s; int drop; } seen[4096];
+    static int nseen;
+    if (n < 0) {
+        n = 0;
+        const char *v = cfg_value("TOTK_DROP_VS");
+        while (*v && n < 32) {
+            char *e;
+            uint64_t h = strtoull(v, &e, 16);
+            if (e == v) break;
+            want[n++] = h;
+            v = *e == ',' ? e + 1 : e;
+        }
+        if (n) rt_log("vk_exec: TOTK_DROP_VS: draws of %d vertex shaders are skipped", n);
+    }
+    if (!n) return 0;
+    for (int i = 0; i < nseen; i++)
+        if (seen[i].s == vs) return seen[i].drop;
+    uint64_t words = 0, h = 0xcbf29ce484222325ull;
+    const uint8_t *b = (const uint8_t *)gfx_shader_spirv(vs, &words);
+    for (uint64_t i = 0; b && i < words * 4; i++) h = (h ^ b[i]) * 0x100000001b3ull;
+    int drop = 0;
+    for (int i = 0; i < n; i++) drop |= want[i] == h;
+    if (nseen < 4096) seen[nseen].s = vs, seen[nseen].drop = drop, nseen++;
+    return drop;
+}
+
 #include "stencil_bits_spv.h"
 #define SB_N 8
 static _Thread_local int sb_seen;   // tex_info_full met a stencil view (tex_info_lookup does not keep it)
@@ -2563,18 +2595,19 @@ static void op_xfb(VkExec *ex, uint32_t op, const void *payload) {
 }
 
 // Draws prepare_draw skips, by reason, logged every 200000 draws (bring-up: which passes never reach the GPU)
-static uint64_t pd_skips[9], pd_calls;
-static const char *const pd_why[9] = {"render disabled", "empty scissor", "no program", "no vertex stage",
-                                      "shader not ready", "shader failed", "dlaa", "pipeline building", "pipeline failed"};
+static uint64_t pd_skips[10], pd_calls;
+static const char *const pd_why[10] = {"render disabled", "empty scissor", "no program", "no vertex stage",
+                                       "shader not ready", "shader failed", "dlaa", "pipeline building", "pipeline failed",
+                                       "TOTK_DROP_VS"};
 #define PD_SKIP(n) (pd_skips[n]++, 0)
 static void pd_tick(void) {
     if (++pd_calls % 200000) return;
     int any = 0;
-    for (int k = 0; k < 9; k++) any |= pd_skips[k] != 0;
+    for (int k = 0; k < 10; k++) any |= pd_skips[k] != 0;
     if (!any) return;
     char b[512];
     int o = snprintf(b, sizeof b, "vk: draws skipped in the last 200000:");
-    for (int k = 0; k < 9; k++)
+    for (int k = 0; k < 10; k++)
         if (pd_skips[k]) o += snprintf(b + o, sizeof b - (size_t)o, " %s %llu,", pd_why[k], (unsigned long long)pd_skips[k]), pd_skips[k] = 0;
     rt_log("%s", b);
 }
@@ -2626,6 +2659,7 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
         if (fs_wait) fs = shader_for(ex, NVN_STAGE_FS, &has_fs, NULL, 1);
     }
     if (!vs || (has_fs && !fs)) return PD_SKIP(5);
+    if (drop_vs(vs)) return PD_SKIP(9);   // TOTK_DROP_VS, a diagnostic
     if (vk_dlaa_skip_draw(ex, fs)) return PD_SKIP(6);   // the game's FXAA off, or its scaling replaced by DLSS (vk_dlaa.c)
     uint32_t fbl = feedback_prepare(ex, fs);
     VkPipeState s = ex->pipe;
