@@ -862,7 +862,8 @@ def main():
     if not expected:
         if args.version not in DISPLAY_VERSIONS:
             sys.exit(f'no expected hashes known for {args.version}; pass --expected')
-        expected = ROOT / 'tools' / 'data' / f'expected-v{DISPLAY_VERSIONS[args.version]}.json'
+        data = ROOT / 'tools' / 'data' / ('violet' if args.title == 'violet' else '')
+        expected = data / f'expected-v{DISPLAY_VERSIONS[args.version]}.json'
     hashes = json.loads(Path(expected).read_text())['exefs_sha256']
     global CLANG, AR, WINDRES, NINJA, TOOLCHAIN_BIN, DEPS
     if args.ninja:
