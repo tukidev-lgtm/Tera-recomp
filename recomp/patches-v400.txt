@@ -26,7 +26,8 @@ set svres TERA_SVRES 0
 set svwin TERA_SVWIN 0
 set svctl TERA_SVCTL 0
 set svdrs TERA_SVDRS 0
-set svshare TERA_SVSHARE 0
+set svsha TERA_SVSHA 0
+set svshb TERA_SVSHB 0
 set svrt TERA_SVRT 0
 set svhalf TERA_SVHALF 0
 set svmem TERA_SVMEM 0
@@ -52,9 +53,9 @@ site svdrs main dfabf8 1e210808 @page:x10 bd40ad43 1e230821 1e210808
 site svdrs main dfac04 1e200849 1e230800 1e200849
 # The scene's share of its render target, the render size divided by a fixed 1920.0 and 1080.0 (main+0xd42930,
 # main+0x187be70). mov w8, #0x44f00000 / #0x44870000 -> the page's floats.
-site svshare main d42930 52a89e08 @page:x8 b9409908
-site svshare main d42940 52a890e8 @page:x8 b9409d08
-site svshare main 187be70 52a89e08 @page:x8 b9409908
+site svsha main d42930 52a89e08 @page:x8 b9409908
+site svsha main d42940 52a890e8 @page:x8 b9409d08
+site svshb main 187be70 52a89e08 @page:x8 b9409908
 # The scene render targets with a fixed 1920x1080 in their description (passed to main+0x107e220, which creates them).
 site svrt main 2635370 5280f00a @page:x10 b940814a
 site svrt main 2635374 5280870b @page:x11 b940856b

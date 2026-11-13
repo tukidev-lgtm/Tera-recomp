@@ -310,7 +310,7 @@ static void sv_res_init(void) {
     float inv[2] = {1.0f / (float)SV.w, 1.0f / (float)SV.h};   // set svscreen (a test, TERA_SVSCREEN=1)
     memcpy(page + 216, inv, sizeof inv);
     // debug: every part of the game resolution is a set of its own; TERA_SV_OFF=win,ctl,... leaves those parts off
-    static const char *const parts[] = {"svwin", "svctl", "svdrs", "svshare", "svrt", "svhalf", "svmem"};
+    static const char *const parts[] = {"svwin", "svctl", "svdrs", "svsha", "svshb", "svrt", "svhalf", "svmem"};
     const char *off = getenv("TERA_SV_OFF");
     for (size_t i = 0; i < sizeof parts / sizeof *parts; i++) {
         int ps = rt_patch_set(parts[i]);
