@@ -307,6 +307,8 @@ static void sv_res_init(void) {
     memcpy(page + 172, &SV.drs, sizeof SV.drs);
     uint32_t half_side = SV.shadow / 2;   // the field main+0x16dc200 reads is half the map's side
     memcpy(page + 176, &half_side, sizeof half_side);
+    float inv[2] = {1.0f / (float)SV.w, 1.0f / (float)SV.h};   // set svscreen (a test, TERA_SVSCREEN=1)
+    memcpy(page + 216, inv, sizeof inv);
     rt_patch_switch(set, 1);
     int shadow = rt_patch_set("svshadow");
     if (SV.shadow && shadow >= 0) rt_patch_switch(shadow, 1);

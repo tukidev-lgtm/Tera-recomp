@@ -24,6 +24,7 @@ site fps60 main 2b7a858 39c08154 52800014
 # the sun shadow map's side (u32, set svshadow).
 set svres TERA_SVRES 0
 set svshadow TERA_SVSHADOW 0
+set svscreen TERA_SVSCREEN 0
 # The window (described by main+0xbc51b0..0xbc528c, which also sizes the swapchain and the output and UI targets): its
 # size comes from the engine config's screenWidth / screenHeight (config +0x10 / +0x18), read at main+0xbc525c and
 # main+0xbc5264. ldr x9, [x8, #0x10] / [x8, #0x18] -> the page's width / height.
@@ -78,6 +79,18 @@ site svshadow main 16dc200 b983d66d @page:x13 b940b1ad
 # The GPU memory the render targets come from (graphics config memorySize_CpuInvisible_GpuCached, which main+0x146e770
 # sets to 268 MiB when the data says 320 MiB): without more of it, a larger size runs out when the map opens.
 site svres main 146e770 52a21809 @page:x9 b940a129
+# Test (set svscreen, off unless TERA_SVSCREEN=1): main+0xbdecf0 builds a {1920.0, 1080.0, 1/1920, 1/1080} screen
+# description that nothing updates for the game resolution; the character's portrait on the opening enrolment form
+# came out off-centre at 2560x1440. Each half from the page instead: +152 the width and height as floats (one 64-bit
+# load), +216 their inverses.
+# mov x8, #0x44f00000 -> adrp x8, page; ldr x8, [x8, #0x98]; movk x8, #0x4487, lsl #48 -> nop
+site svscreen main bdecf0 d2a89e08 @page:x8 f9404d08
+site svscreen main bdecfc f2e890e8 d503201f
+# mov x9, #0x8889 -> adrp x9, page; ldr x9, [x9, #0xd8]; the three movk -> nop
+site svscreen main bdecf4 d2911129 @page:x9 f9406d29
+site svscreen main bdecf8 f2a74109 d503201f
+site svscreen main bded00 f2d73ac9 d503201f
+site svscreen main bded04 f2e74e49 d503201f
 
 # Debugging trace points (runtime/tracepoint.c). Remove before a release build.
 # Boot: nnMain's init chain (main+0x11bcc84) calls the object's virtual main+0x14fd2d8, which locks a field of the
