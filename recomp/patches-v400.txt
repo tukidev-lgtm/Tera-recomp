@@ -43,11 +43,17 @@ site svres main bd7024 f2c08708 @page:x8 f9404908
 site svres main dfabf8 1e210808 @page:x10 bd40ad43 1e230821 1e210808
 # fmul s9, s2, s0 -> fmul s0, s0, s3; fmul s9, s2, s0
 site svres main dfac04 1e200849 1e230800 1e200849
-# The scene's share of its render target, the render size divided by a fixed 1920.0 and 1080.0 (main+0xd42930,
-# main+0x187be70). mov w8, #0x44f00000 / #0x44870000 -> the page's floats.
+# The scene's share of its render target, the render size divided by a fixed 1920.0 and 1080.0 (main+0xd42930).
+# mov w8, #0x44f00000 / #0x44870000 -> the page's floats.
 site svres main d42930 52a89e08 @page:x8 b9409908
 site svres main d42940 52a890e8 @page:x8 b9409d08
-site svres main 187be70 52a89e08 @page:x8 b9409908
+# main+0x187be60 reads the screen size from the engine config (1920x1080 there whatever the game size), keeps it in
+# globals and scales a rectangle laid out for 1920x1080 by width / 1920.0 into pixels: the enrolment form's portrait
+# came out off-centre at another size (the rectangle stayed 1920x1080's), and with the 1920.0 replaced by the game
+# width instead it shrank. The size read -> the page's width and height, so the rectangle grows with the game size.
+# ldur w8, [x29, #-4] / ldur w9, [x29, #-8] -> ldr w8, [page + 0x80] / ldr w9, [page + 0x84]
+site svres main 187be60 b85fc3a8 @page:x8 b9408108
+site svres main 187be78 b85f83a9 @page:x9 b9408529
 # The scene render targets with a fixed 1920x1080 in their description (passed to main+0x107e220, which creates them).
 site svres main 2635370 5280f00a @page:x10 b940814a
 site svres main 2635374 5280870b @page:x11 b940856b
