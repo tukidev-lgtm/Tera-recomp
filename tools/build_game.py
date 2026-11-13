@@ -790,6 +790,10 @@ def mib(n):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--version', default='v121', help='game version (default v121)')
+    ap.add_argument('--title', choices=('scarlet', 'violet'), default='scarlet',
+                    help='the game the runtime serves (runtime/title.h): its program id for save data, mods and '
+                         'svcGetInfo. Violet 4.0.0\'s main differs from Scarlet\'s in one flag and its build id, so '
+                         'the same patches apply (default scarlet)')
     ap.add_argument('--cpu', choices=('v2', 'v3'), default='v3',
                     help='target CPU level: v3 (AVX2/FMA, default) or v2 (SSE4.2, for older CPUs; slower)')
     ap.add_argument('--gen', type=Path, help='generated C directory (default generated/<version>)')
@@ -834,6 +838,8 @@ def main():
                     help='expected hashes (default tools/data/expected-<display version>.json)')
     args = ap.parse_args()
     set_cpu(args.cpu)
+    if args.title == 'violet':
+        RT_FLAGS.append('-DTERA_VIOLET')
 
     gen = (args.gen or ROOT / 'generated' / args.version).resolve()
     out = (args.out or ROOT / 'build' / args.version).resolve()
