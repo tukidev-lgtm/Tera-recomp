@@ -23,62 +23,69 @@ site fps60 main 2b7a858 39c08154 52800014
 # +168 half the height (u32), +172 the render scale (float, at most 1), +176 half
 # the sun shadow map's side (u32, set svshadow).
 set svres TERA_SVRES 0
+set svwin TERA_SVWIN 0
+set svctl TERA_SVCTL 0
+set svdrs TERA_SVDRS 0
+set svshare TERA_SVSHARE 0
+set svrt TERA_SVRT 0
+set svhalf TERA_SVHALF 0
+set svmem TERA_SVMEM 0
 set svshadow TERA_SVSHADOW 0
 set svscreen TERA_SVSCREEN 0
 # The window (described by main+0xbc51b0..0xbc528c, which also sizes the swapchain and the output and UI targets): its
 # size comes from the engine config's screenWidth / screenHeight (config +0x10 / +0x18), read at main+0xbc525c and
 # main+0xbc5264. ldr x9, [x8, #0x10] / [x8, #0x18] -> the page's width / height.
-site svres main bc525c f9400909 @page:x9 b9408129
-site svres main bc5264 f9400d09 @page:x9 b9408529
+site svwin main bc525c f9400909 @page:x9 b9408129
+site svwin main bc5264 f9400d09 @page:x9 b9408529
 # The render resolution controller (constructed at main+0xbd6fe0, run each frame by main+0xdfa800, which scales its base
 # for the dynamic resolution and publishes the render size): its base at +0x430 {handheld, docked} widths and +0x438
 # heights. movk x8, #0x780, lsl #32 / #0x438 -> {1280, width} / {720, height} from the page.
-site svres main bd7018 f2c0f008 @page:x8 f9404508
-site svres main bd7024 f2c08708 @page:x8 f9404908
+site svctl main bd7018 f2c0f008 @page:x8 f9404508
+site svctl main bd7024 f2c08708 @page:x8 f9404908
 # The render scale below 100%: the controller's per-frame size (main+0xdfa800) is its base times the dynamic
 # resolution's scale (each at most 1), height at main+0xdfabf8 and width at main+0xdfac04. Both scales are multiplied
 # by the page's render scale first, so the scene is drawn smaller inside its targets and the game's own composite
 # enlarges it, as it does for its dynamic resolution. x10 and s3 are free there.
 # fmul s8, s0, s1 -> adrp x10, page; ldr s3, [x10, #0xac]; fmul s1, s1, s3; fmul s8, s0, s1
-site svres main dfabf8 1e210808 @page:x10 bd40ad43 1e230821 1e210808
+site svdrs main dfabf8 1e210808 @page:x10 bd40ad43 1e230821 1e210808
 # fmul s9, s2, s0 -> fmul s0, s0, s3; fmul s9, s2, s0
-site svres main dfac04 1e200849 1e230800 1e200849
+site svdrs main dfac04 1e200849 1e230800 1e200849
 # The scene's share of its render target, the render size divided by a fixed 1920.0 and 1080.0 (main+0xd42930,
 # main+0x187be70). mov w8, #0x44f00000 / #0x44870000 -> the page's floats.
-site svres main d42930 52a89e08 @page:x8 b9409908
-site svres main d42940 52a890e8 @page:x8 b9409d08
-site svres main 187be70 52a89e08 @page:x8 b9409908
+site svshare main d42930 52a89e08 @page:x8 b9409908
+site svshare main d42940 52a890e8 @page:x8 b9409d08
+site svshare main 187be70 52a89e08 @page:x8 b9409908
 # The scene render targets with a fixed 1920x1080 in their description (passed to main+0x107e220, which creates them).
-site svres main 2635370 5280f00a @page:x10 b940814a
-site svres main 2635374 5280870b @page:x11 b940856b
-site svres main 1664100 5280f009 @page:x9 b9408129
-site svres main 16640f8 5280870a @page:x10 b940854a
-site svres main 14b0020 5280f008 @page:x8 b9408108
-site svres main 14b0024 5280870a @page:x10 b940854a
+site svrt main 2635370 5280f00a @page:x10 b940814a
+site svrt main 2635374 5280870b @page:x11 b940856b
+site svrt main 1664100 5280f009 @page:x9 b9408129
+site svrt main 16640f8 5280870a @page:x10 b940854a
+site svrt main 14b0020 5280f008 @page:x8 b9408108
+site svrt main 14b0024 5280870a @page:x10 b940854a
 # The half-size scene targets, a fixed 960x540 in their description (also created through main+0x107e220): at a larger
 # size they stayed 960x540 and the screen-space shadows read them at the wrong places (the shadows turned with the
 # camera). mov wN, #0x3c0 / #0x21c -> half the page's width / height.
-site svres main 1664240 52807808 @page:x8 b940a508
-site svres main 1664248 52804389 @page:x9 b940a929
-site svres main 2635c90 5280780a @page:x10 b940a54a
-site svres main 2635c94 5280438b @page:x11 b940a96b
-site svres main 2636298 5280780a @page:x10 b940a54a
-site svres main 263629c 5280438b @page:x11 b940a96b
-site svres main 116f498 5280780a @page:x10 b940a54a
-site svres main 116f49c 5280438b @page:x11 b940a96b
-site svres main 135d1e8 52807808 @page:x8 b940a508
-site svres main 135d1f0 52804388 @page:x8 b940a908
-site svres main 17d9e64 52807808 @page:x8 b940a508
-site svres main 17d9e68 5280438a @page:x10 b940a94a
-site svres main e939c4 5280780a @page:x10 b940a54a
-site svres main e939c8 5280438b @page:x11 b940a96b
+site svhalf main 1664240 52807808 @page:x8 b940a508
+site svhalf main 1664248 52804389 @page:x9 b940a929
+site svhalf main 2635c90 5280780a @page:x10 b940a54a
+site svhalf main 2635c94 5280438b @page:x11 b940a96b
+site svhalf main 2636298 5280780a @page:x10 b940a54a
+site svhalf main 263629c 5280438b @page:x11 b940a96b
+site svhalf main 116f498 5280780a @page:x10 b940a54a
+site svhalf main 116f49c 5280438b @page:x11 b940a96b
+site svhalf main 135d1e8 52807808 @page:x8 b940a508
+site svhalf main 135d1f0 52804388 @page:x8 b940a908
+site svhalf main 17d9e64 52807808 @page:x8 b940a508
+site svhalf main 17d9e68 5280438a @page:x10 b940a94a
+site svhalf main e939c4 5280780a @page:x10 b940a54a
+site svhalf main e939c8 5280438b @page:x11 b940a96b
 # The sun shadow map (TOTK_SHADOW_RES): main+0x16dc200 creates the shadow renderer's depth array (a layer per cascade)
 # from the field at +0x3d4, which only this reads and which is half the array's side (1024 for the game's 2048x2048).
 # ldrsw x13, [x19, #0x3d4] -> adrp x13, page; ldr w13, [x13, #0xb0] (the page holds half the side).
 site svshadow main 16dc200 b983d66d @page:x13 b940b1ad
 # The GPU memory the render targets come from (graphics config memorySize_CpuInvisible_GpuCached, which main+0x146e770
 # sets to 268 MiB when the data says 320 MiB): without more of it, a larger size runs out when the map opens.
-site svres main 146e770 52a21809 @page:x9 b940a129
+site svmem main 146e770 52a21809 @page:x9 b940a129
 # Test (set svscreen, off unless TERA_SVSCREEN=1): main+0xbdecf0 builds a {1920.0, 1080.0, 1/1920, 1/1080} screen
 # description that nothing updates for the game resolution; the character's portrait on the opening enrolment form
 # came out off-centre at 2560x1440. Each half from the page instead: +152 the width and height as floats (one 64-bit
