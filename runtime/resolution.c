@@ -309,6 +309,11 @@ static void sv_res_init(void) {
     memcpy(page + 176, &half_side, sizeof half_side);
     float inv[2] = {1.0f / (float)SV.w, 1.0f / (float)SV.h};   // set svscreen (a test, TERA_SVSCREEN=1)
     memcpy(page + 216, inv, sizeof inv);
+    // the photo size at the game size, as main+0x187be60 scales the photo's 1440x864 rectangle: by width / 1920 and
+    // down to a multiple of 32 (set svphoto, a test, TERA_SVPHOTO=1)
+    double s = (double)SV.w / BASE_W;
+    uint32_t photo[2] = {(uint32_t)(s * 1440 / 32) * 32, (uint32_t)(s * 864 / 32) * 32};
+    memcpy(page + 224, photo, sizeof photo);
     rt_patch_switch(set, 1);
     int shadow = rt_patch_set("svshadow");
     if (SV.shadow && shadow >= 0) rt_patch_switch(shadow, 1);

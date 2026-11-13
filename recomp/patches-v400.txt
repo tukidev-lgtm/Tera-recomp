@@ -25,6 +25,7 @@ site fps60 main 2b7a858 39c08154 52800014
 set svres TERA_SVRES 0
 set svshadow TERA_SVSHADOW 0
 set svscreen TERA_SVSCREEN 0
+set svphoto TERA_SVPHOTO 0
 # The window (described by main+0xbc51b0..0xbc528c, which also sizes the swapchain and the output and UI targets): its
 # size comes from the engine config's screenWidth / screenHeight (config +0x10 / +0x18), read at main+0xbc525c and
 # main+0xbc5264. ldr x9, [x8, #0x10] / [x8, #0x18] -> the page's width / height.
@@ -54,6 +55,12 @@ site svres main d42940 52a890e8 @page:x8 b9409d08
 # ldur w8, [x29, #-4] / ldur w9, [x29, #-8] -> ldr w8, [page + 0x80] / ldr w9, [page + 0x84]
 site svres main 187be60 b85fc3a8 @page:x8 b9408108
 site svres main 187be78 b85f83a9 @page:x9 b9408529
+# Test (set svphoto, off unless TERA_SVPHOTO=1): the photo size the game's scripts read, a fixed 1440x864
+# (main+0x18db320 and main+0x18db400). The photo texture follows the rectangle above (1440x864 laid out for 1920x1080,
+# so 1920x1152 at 2560x1440), and a photo of the fixed size filled only part of it: the enrolment portrait's lower part
+# stayed black. mov w0, #0x5a0 / #0x360 -> the page's +224 / +228 (the rectangle's size at the game size).
+site svphoto main 18db354 5280b400 @page:x0 b940e000
+site svphoto main 18db434 52806c00 @page:x0 b940e400
 # The scene render targets with a fixed 1920x1080 in their description (passed to main+0x107e220, which creates them).
 site svres main 2635370 5280f00a @page:x10 b940814a
 site svres main 2635374 5280870b @page:x11 b940856b
