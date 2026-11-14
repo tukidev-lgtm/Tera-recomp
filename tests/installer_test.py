@@ -515,6 +515,34 @@ class BaseGameCheckTest(unittest.TestCase):
         self.assertEqual(steps.program_nca(records)[0]['title_id'], self.BASE)
 
 
+class GamesTest(unittest.TestCase):
+    """Scarlet and Violet: the game comes from the base game's title ID, the DLC from its add-on content ID."""
+
+    def test_aoc_game(self):
+        from installer.layout import aoc_game, update_title
+        self.assertEqual(aoc_game('0100A3D008C5D001'), '0100A3D008C5C000')
+        self.assertEqual(aoc_game('01008F6008C5F001'), '01008F6008C5E000')
+        self.assertIsNone(aoc_game('0100A3D008C5C000'))
+        self.assertIsNone(aoc_game('0100A3D008C5C800'))
+        self.assertEqual(update_title('01008F6008C5E000'), '01008F6008C5E800')
+
+    def test_expected_files_per_game(self):
+        from installer import layout
+        lay = layout.find(ROOT)
+        self.assertEqual(lay.expected('4.0.0', '0100A3D008C5C000'), ROOT / 'tools' / 'data' / 'expected-v4.0.0.json')
+        violet = lay.expected('4.0.0', '01008F6008C5E000')
+        self.assertEqual(violet, ROOT / 'tools' / 'data' / 'violet' / 'expected-v4.0.0.json')
+        self.assertTrue(violet.is_file())
+        for title in layout.GAMES:
+            self.assertEqual(steps.extract.load_expected(title)['4.0.0']['title_id'], title)
+
+    def test_game_title_defaults_to_scarlet(self):
+        ctx = SimpleNamespace(state={})
+        self.assertEqual(steps.game_title(ctx), '0100A3D008C5C000')
+        ctx.state['title'] = '01008F6008C5E000'
+        self.assertEqual(steps.game_title(ctx), '01008F6008C5E000')
+
+
 class FontsTest(unittest.TestCase):
     """The fonts step: keyed by language and firmware, a no-op without firmware, writes dest/shared-fonts."""
 
@@ -553,7 +581,7 @@ class FontsTest(unittest.TestCase):
 
     def test_all_steps_order(self):
         self.assertEqual([s.id for s in steps.all_steps()],
-                         ['check', 'fonts', 'extract', 'lift', 'compile', 'prepare', 'dlss', 'cleanup'])
+                         ['check', 'fonts', 'extract', 'dlc', 'lift', 'compile', 'prepare', 'dlss', 'cleanup'])
 
     def test_extracts_into_the_install_folder(self):
         self.fake_tool()

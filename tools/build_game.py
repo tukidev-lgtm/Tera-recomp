@@ -189,6 +189,8 @@ DEFAULT_DEPS = ROOT / 'toolchain' / 'deps-mingw'
 # functions sit on it). mouse_direct.c also registers host callbacks relative to that version's patch page.
 INSTALL_SIDE = {'romfs.c', 'patches.c', 'ov_zstd.c', 'mouse_direct.c'}
 LIB_NAME = 'libtotkrt.a'
+# The application ID of each game --title names (runtime/title.h reads it from modules.c)
+TITLE_IDS = {'scarlet': 0x0100A3D008C5C000, 'violet': 0x01008F6008C5E000}
 AR = UCRT / 'llvm-ar.exe' if WIN else on_path('llvm-ar')
 WINDRES = UCRT / 'windres.exe'   # runtime/totk.rc: the manifest of totk.exe
 TOOLCHAIN_BIN = None   # llvm-mingw bin directory, set by main() for --toolchain
@@ -351,7 +353,7 @@ def runtime_object(out, src):
     return out / 'obj' / 'runtime' / rel.with_suffix('.o')
 
 
-def module_glue(layout, linked, hashes, paths, version):
+def module_glue(layout, linked, hashes, paths, version, title='scarlet'):
     """C for build/<version>/modules.c: the layout table, the linked modules' function tables (dispatch.h), the
     expected ExeFS hashes, the game version and the default game paths (host.h)."""
     out = [f'// Module glue written by tools/build_game.py; do not edit. {GENERATED_MARKER}',
@@ -379,6 +381,9 @@ def module_glue(layout, linked, hashes, paths, version):
         out.append(f'const char rt_default_{name}[] = {c_string(paths[name].as_posix())};')
     number = int(DISPLAY_VERSIONS[version].replace('.', '')) if version in DISPLAY_VERSIONS else 0   # 1.4.3 -> 143
     out += [f'const int rt_game_version = {number};', f'const char rt_port_version[] = {c_string(port_version())};', '']
+    program = TITLE_IDS[title]   # the game the runtime serves (runtime/title.h): set at link time, so one prebuilt
+    out += [f'const uint64_t rt_title_program_id = {program:#x}ull;',   # runtime library serves both games
+            f'const char rt_title_id_str[] = "{program:016X}";', '']
     return '\n'.join(out)
 
 
@@ -838,8 +843,6 @@ def main():
                     help='expected hashes (default tools/data/expected-<display version>.json)')
     args = ap.parse_args()
     set_cpu(args.cpu)
-    if args.title == 'violet':
-        RT_FLAGS.append('-DTERA_VIOLET')
 
     gen = (args.gen or ROOT / 'generated' / args.version).resolve()
     out = (args.out or ROOT / 'build' / args.version).resolve()
@@ -914,7 +917,7 @@ def main():
     missing = [n for n in names if n not in hashes]
     if missing:
         sys.exit(f'{expected}: no exefs_sha256 for {missing}')
-    write_if_changed(out / 'modules.c', module_glue(layout, linked, hashes, paths, args.version))
+    write_if_changed(out / 'modules.c', module_glue(layout, linked, hashes, paths, args.version, args.title))
     if has_romfs:
         count, size, dt = romfs_index.write(paths['romfs'], out)
         print(f'romfs index: {count} files, {mib(size)}, {dt:.1f} s')

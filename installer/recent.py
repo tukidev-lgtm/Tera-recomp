@@ -1,7 +1,7 @@
 """The last install folder and source paths, in a per-user file, so an update, a reinstall or a switch to another game
 version starts with the form filled in.
 
-    {"format": 1, "dest": ..., "base": ..., "update": ..., "keys": ..., "firmware": ...}
+    {"format": 1, "dest": ..., "base": ..., "update": ..., "keys": ..., "firmware": ..., "dlc": ...}
 
 Absolute paths only. The keys entry is the path of the keys file, never its contents.
 
@@ -18,7 +18,7 @@ from . import state
 
 FORMAT = 1
 ENV = 'TOTK_SETUP_RECENT'
-FILES = ('base', 'update', 'keys')   # recorded when they are files
+FILES = ('base', 'update', 'keys', 'dlc')   # recorded when they are files
 SOURCES = FILES + ('firmware',)
 FIELDS = ('dest',) + SOURCES
 
@@ -67,7 +67,7 @@ def load():
 
 
 def save(dest, sources=None):
-    """Records dest and the non-empty, existing entries of sources (base, update, keys, firmware); an entry left out
+    """Records dest and the non-empty, existing entries of sources (base, update, keys, firmware, dlc); an entry left out
     or empty keeps its saved value. Atomic; a failure to write is ignored, the window works without it."""
     target = path()
     tmp = target.with_name(target.name + '.tmp')

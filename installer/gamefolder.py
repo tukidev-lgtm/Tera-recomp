@@ -3,6 +3,7 @@
 The folder holds the player's own files, at its top or in subfolders up to MAX_DEPTH deep:
     the base game and the update     .nsp, .xci, .nsz or .xcz; told apart by the title ID of their Meta NCA (an update's
                                      ends in 800), read with the keys, else by the name ("UPD", "[v0]")
+    the DLC (optional)               an .nsp whose Meta NCA's title ID has other low bits (add-on content)
     prod.keys                        the console's keys (any *.keys file named prod.keys first)
     the firmware                     the folder with the most .nca files (Contents/registered of a firmware dump or an
                                      emulator's install)
@@ -54,7 +55,8 @@ def by_name(path):
 
 
 def find(folder):
-    """{'base', 'update', 'keys', 'firmware'} paths found in folder; raises GameFolderError naming what is missing."""
+    """{'base', 'update', 'keys', 'firmware', 'dlc'} paths found in folder ('dlc' may be None); raises GameFolderError
+    naming what is missing."""
     folder = Path(folder)
     if not folder.is_dir():
         raise GameFolderError(f'{folder} is not a folder')
@@ -66,7 +68,7 @@ def find(folder):
         if ncas > most:
             firmware, most = here, ncas
     keyfile = next((k for k in keys if k.name.lower() == 'prod.keys'), keys[0] if keys else None)
-    found = {'keys': keyfile, 'firmware': firmware, 'base': None, 'update': None}
+    found = {'keys': keyfile, 'firmware': firmware, 'base': None, 'update': None, 'dlc': None}
     loaded = None
     if keyfile:
         from extract_exefs import load_keys
@@ -74,10 +76,22 @@ def find(folder):
             loaded = load_keys(keyfile)
         except (OSError, ValueError, UnicodeDecodeError):
             loaded = None
+    # Each file by its Meta NCA's title ID: the application's own (...000) is the base game, bit 11 set (...800) its
+    # update, any other low bits add-on content. With several games in the folder the base and update are taken from
+    # the first game that has both, and the DLC from the same game.
+    kinds = []
     for g in games:
         title = meta_title(g, loaded) if loaded else None
-        kind = ('update' if title.endswith('800') else 'base') if title else by_name(g)
-        if kind and not found[kind]:
+        if title:
+            low = int(title, 16) & 0xFFF
+            app = f'{int(title, 16) & ~0xFFF:016X}' if low in (0, 0x800) else f'{(int(title, 16) & ~0xFFF) - 0x1000:016X}'
+            kinds.append((g, 'base' if low == 0 else 'update' if low == 0x800 else 'dlc', app))
+        else:
+            kinds.append((g, by_name(g), None))
+    apps = [a for _, k, a in kinds if k == 'base' and a]
+    app = next((a for a in apps if any(k == 'update' and x == a for _, k, x in kinds)), apps[0] if apps else None)
+    for g, kind, a in kinds:
+        if kind and not found[kind] and (a is None or app is None or a == app):
             found[kind] = g
     missing = [what for what, key in (('the base game', 'base'), ('the update', 'update'), ('prod.keys', 'keys'),
                                       ('the firmware folder (.nca files)', 'firmware')) if not found[key]]

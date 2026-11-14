@@ -1,8 +1,10 @@
 # Installer
 
 > Tera Recomp: the player's steps are in the [README](../README.md#download-and-install-windows). This page is the
-> design inherited from TotK Recomp; for Pokemon Scarlet the inputs are the base game, the 4.0.0 update, prod.keys
-> and the firmware folder (required: the game draws all its text with the shared fonts), the setup is
+> design inherited from TotK Recomp; for Pokemon Scarlet and Violet the inputs are the base game (its title ID decides
+> which game is built: `installer/layout.py` `GAMES`, `build_game.py --title`), the same game's 4.0.0 update, prod.keys,
+> the firmware folder (required: the game draws all its text with the shared fonts) and optionally the DLC NSP, whose
+> licence file the `dlc` step writes to `aoc/<title id>/` (`tools/extract_aoc.py`, `runtime/ov_system.c` nn::aoc), the setup is
 > `Tera-Setup.exe`, the prepare step only installs the shader translator, and the first install adds a desktop
 > shortcut (`installer/steps.py` `desktop_shortcut`).
 

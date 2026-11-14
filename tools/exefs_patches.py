@@ -61,12 +61,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from cheats import TITLE, Main, convert, fnv  # noqa: E402
+from cheats import Main, convert, fnv, places  # noqa: E402
 from nso import (DT_JMPREL, DT_NULL, DT_PLTRELSZ, DT_RELA, DT_RELASZ, DT_RELR, DT_RELRSZ, DT_STRSZ,  # noqa: E402
                  DT_STRTAB, DT_SYMTAB, R_AARCH64_JUMP_SLOT)
 
 NSO_HEADER = 0x100
-EXEFS_PLACES = ('exefs', f'atmosphere/contents/{TITLE}/exefs', f'contents/{TITLE}/exefs', f'{TITLE}/exefs')
+EXEFS_PLACES = places('exefs')
 RUN_MAX = 256   # bytes per line of the data file (runtime/mods.c reads lines of at most 1024 characters)
 
 

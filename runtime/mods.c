@@ -60,11 +60,10 @@ static int has_file_cb(const char *name, int kind, uint64_t size, void *ctx) {
 
 // The first of the emulator and Atmosphere places of <mod>/<part> that is a folder, into out ("" none).
 static void find_root(const char *mod, const char *part, char *out, size_t cap) {
-    static const char *const forms[] = {"%s/%s", "%s/atmosphere/contents/" TITLE "/%s", "%s/contents/" TITLE "/%s",
-                                        "%s/" TITLE "/%s"};
-    for (size_t i = 0; i < sizeof forms / sizeof *forms; i++) {
-        if (snprintf(out, cap, forms[i], mod, part) < (int)cap && plat_dir_exists(out)) return;
-    }
+    if (snprintf(out, cap, "%s/%s", mod, part) < (int)cap && plat_dir_exists(out)) return;
+    static const char *const forms[] = {"%s/atmosphere/contents/%s/%s", "%s/contents/%s/%s", "%s/%s/%s"};
+    for (size_t i = 0; i < sizeof forms / sizeof *forms; i++)
+        if (snprintf(out, cap, forms[i], mod, TITLE, part) < (int)cap && plat_dir_exists(out)) return;
     out[0] = 0;
 }
 

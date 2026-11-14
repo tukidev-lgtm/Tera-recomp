@@ -1,6 +1,6 @@
 # Tera Recomp
 
-Static recompilation of *Pokémon Scarlet* (and later *Violet*) for the Nintendo Switch into a native x86-64 Windows
+Static recompilation of *Pokémon Scarlet* and *Pokémon Violet* for the Nintendo Switch into a native x86-64 Windows
 program with a Vulkan renderer, followed by a self-hosted multiplayer server (trades, battles, Union Circle) for many
 players at once, each on their own save and at their own pace.
 
@@ -22,7 +22,7 @@ By [Tukidev](https://x.com/Tukidev): follow for progress updates · [Download](h
 The download holds the setup and its tools only. The setup builds the game on your PC from your own files, once.
 
 With [RecompLauncher](https://recomplauncher.com): add Tera Recomp, point it to one folder holding your base game,
-the 4.0.0 update, `prod.keys` and the firmware folder, and it builds and starts the game for you
+the 4.0.0 update, `prod.keys`, the firmware folder and optionally the DLC, and it builds and starts the game for you
 (`recomplauncher.json` describes the setup, the settings and the saves). Or set it up yourself:
 
 ### What you need
@@ -31,8 +31,10 @@ the 4.0.0 update, `prod.keys` and the firmware folder, and it builds and starts 
   current drivers).
 - About 30 GB free on the disk you install to while the setup runs (12 GB after it).
 - From your own Switch:
-  - the **Pokémon Scarlet base game** (NSP, XCI, NSZ or XCZ);
-  - the **4.0.0 update** (NSP or NSZ);
+  - the **Pokémon Scarlet or Pokémon Violet base game** (NSP, XCI, NSZ or XCZ); the setup tells which one it is;
+  - the **4.0.0 update** of the same game (NSP or NSZ);
+  - optionally the **DLC** (*The Hidden Treasure of Area Zero*: The Teal Mask and The Indigo Disk), as an NSP. Its
+    content already ships in the 4.0.0 update; the DLC file holds the licence that unlocks it;
   - your console's **`prod.keys`**;
   - the **firmware folder** (`Contents/registered`, full of `.nca` files): the game draws all its text with the
     console's system fonts, which the setup takes from there. An emulator's firmware install works.
@@ -43,16 +45,18 @@ the 4.0.0 update, `prod.keys` and the firmware folder, and it builds and starts 
    again when you update.
 2. Open `Tera-Setup.exe`. If Windows SmartScreen warns about an unknown publisher, click *More info* > *Run anyway*.
 3. In the window, choose:
-   - **Base game**: the Scarlet base game file;
+   - **Base game**: the Scarlet or Violet base game file;
    - **Update 4.0.0**: the update file;
    - **prod.keys**: your keys file (read in place, never copied or shown);
    - **Firmware folder**: the `Contents/registered` folder;
+   - **DLC** (optional): the DLC file of the same game. You can leave it empty and add it later by running the setup
+     again on the same install folder;
    - **Game language**;
    - **Install folder**: a new, empty folder, for example `C:\Games\Tera Recomp`.
 4. Click **Start** and wait. The window shows each step: checking the files, extracting the system fonts, extracting
    and merging the game with the update, translating the game code to C and compiling it. About 20 minutes on a
    recent PC. If it stops, it resumes from the last finished step when you click Start again.
-5. When it is done, start the game with the **Pokemon Scarlet** shortcut on your desktop (or `totk.exe` in the install
+5. When it is done, start the game with the **Pokemon Scarlet** (or **Pokemon Violet**) shortcut on your desktop (or `totk.exe` in the install
    folder).
 
 The first time you meet a new area or effect the game translates its shaders, which can stutter briefly; from the

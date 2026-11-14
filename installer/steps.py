@@ -1,4 +1,4 @@
-"""The eight setup steps of docs/installer.md: check, fonts, extract, lift, compile, prepare, dlss, cleanup.
+"""The nine setup steps of docs/installer.md: check, fonts, extract, dlc, lift, compile, prepare, dlss, cleanup.
 
 Extraction runs in this process through tools/extract.py (the package's sibling tools/, which ships with it); fonts
 runs the vendored extract_shared_fonts.py on the firmware folder; lift, compile and prepare run the bundled Python on
@@ -36,11 +36,13 @@ import urllib.request
 from pathlib import Path
 
 from . import ini
-from .layout import EXE, GAME_TITLE, ROMFS_ESTIMATE, SUPPORTED, UPDATE_TITLE, version_tag
+from .layout import EXE, GAME_TITLE, GAMES, ROMFS_ESTIMATE, SUPPORTED, aoc_game, update_title, version_tag
 from .runner import InstallError, Step
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'tools'))
 import extract  # noqa: E402
+import extract_aoc  # noqa: E402
+import cheats as cheat_tool  # noqa: E402
 import ncz  # noqa: E402
 import shader_list  # noqa: E402
 from extract_exefs import (common_tickets, container_entries, load_keys, nca_ctr_key, nca_inventory,  # noqa: E402
@@ -192,8 +194,14 @@ def game_version(ctx):
     return ctx.state.get('version', SUPPORTED[0])
 
 
+def game_title(ctx):
+    """The application ID of the game this install builds: what the check read from the base game, else the recorded
+    one. Installs made before Violet support record none: they are Scarlet."""
+    return ctx.state.get('title', GAME_TITLE)
+
+
 def expected_update(ctx):
-    return extract.load_expected(GAME_TITLE)[game_version(ctx)]
+    return extract.load_expected(game_title(ctx))[game_version(ctx)]
 
 
 def romfs_size(expected):
@@ -339,7 +347,7 @@ def base_misuse(records):
     metadata = [r['title_id'] for r, _ in records if r['content_type'] == 1]
     if len(metadata) > 1:
         return 'check.base_combined'
-    if UPDATE_TITLE in metadata:
+    if any(update_title(t) in metadata for t in GAMES):
         return 'check.base_is_update'
     return None
 
@@ -481,17 +489,51 @@ class Check(Step):
         if 'header_key' not in keys:
             raise InstallError('check.keys_no_header_key')
         self.unpack(ctx)
-        total = 0
+        total, titles = 0, {}
         for name, is_update in (('base', False), ('update', True)):
             path = game_file(ctx, name)
             with path.open('rb') as f:
                 size, title = self.open_input(f, path, keys, name, is_update)
-            if title != GAME_TITLE:   # the extractor takes Scarlet and Violet (and TotK); this release builds Scarlet
+            if title not in GAMES:   # the extractor also takes TotK; this release builds Scarlet and Violet
                 raise InstallError('check.update_not_totk' if is_update else 'check.base_not_totk',
                                    detail=f'title {title}')
+            titles[name] = title
             total += size
+        if titles['update'] != titles['base']:
+            raise InstallError('check.update_other_game', base=GAMES[titles['base']][0],
+                               update=GAMES[titles['update']][0])
+        self.dlc_input(ctx, keys, titles['base'])
         del keys
+        recorded = game_title(ctx)
+        ctx.state['title'] = titles['base']
+        ctx.reporter.log(f'check: the game is {GAMES[titles["base"]][0]}')
+        if titles['base'] != recorded:   # the other game than the recorded one: build everything again
+            ctx.reporter.log(f'check: recorded {GAMES[recorded][0]}, building {GAMES[titles["base"]][0]}')
+            ctx.keys = {}
+            ctx.plan(ctx.forced | {'extract', 'dlc', 'lift', 'compile', 'prepare'})
         return total
+
+    @staticmethod
+    def dlc_input(ctx, keys, title):
+        """The optional DLC file (--dlc) must be add-on content of the same game, readable with these keys."""
+        dlc = getattr(ctx.options, 'dlc', None)
+        if not dlc:
+            return
+        path = Path(dlc)
+        if not path.is_file():
+            raise InstallError('check.input_missing', input='dlc', path=str(path))
+        try:
+            with path.open('rb') as f:
+                kind, entries = container_entries(f, path.stat().st_size)
+                titles = {r['title_id'] for r, _ in nca_inventory(f, entries, keys)
+                          if r['content_type'] in extract_aoc.AOC_CONTENT}
+        except ValueError as e:
+            raise_if_damaged(e, 'dlc', path)
+            raise InstallError('check.dlc_not_dlc', path=str(path)) from None
+        if kind != 'nsp' or not titles:
+            raise InstallError('check.dlc_not_dlc', path=str(path))
+        if any(aoc_game(t) != title for t in titles):
+            raise InstallError('check.dlc_other_game', path=str(path), game=GAMES[title][0])
 
     def unpack(self, ctx):
         """Unpack an NSZ or XCZ (a game file compressed by the nsz tool) into <temp>/unpacked/<base|update>.nsp with
@@ -597,7 +639,7 @@ class Check(Step):
         dest_need = temp_need = 0
         if ctx.will_run('extract'):
             # the update is identified after this estimate: the larger RomFS of the supported ones
-            dest_need += max(romfs_size(extract.load_expected(GAME_TITLE)[v]) for v in SUPPORTED) + ncas
+            dest_need += max(romfs_size(extract.load_expected(t)[v]) for t in GAMES for v in SUPPORTED) + ncas
             romfs = ctx.dest / 'romfs' / 'romfs.bin'
             if romfs.is_file():   # a resumed extraction replaces it
                 dest_need -= romfs.stat().st_size
@@ -626,7 +668,7 @@ class Check(Step):
         o, work = ctx.options, ctx.temp / 'check'
         logs = ctx.temp / 'logs'
         logs.mkdir(parents=True, exist_ok=True)
-        versions = extract.load_expected(GAME_TITLE)
+        versions = extract.load_expected(game_title(ctx))
         for name, is_update in (('base', False), ('update', True)):
             out = work / name
             remove(out)
@@ -730,7 +772,7 @@ class Extract(Step):
 
     def key(self, ctx):
         # The output is whatever matches the expected hashes, whichever files and tools produced it.
-        return fingerprint('extract-1', ctx.layout.expected(game_version(ctx)))
+        return fingerprint('extract-1', ctx.layout.expected(game_version(ctx), game_title(ctx)))
 
     def current(self, ctx, record):
         # Another update file than the recorded one (1.2.1 -> 1.4.3) extracts again; the check then identifies it.
@@ -838,14 +880,66 @@ class Extract(Step):
             watch.stop()
 
 
+# ---- 3b. dlc
+
+AOC = 'aoc'   # <dest>/aoc/<title id>/: the add-on content runtime/ov_system.c lists and runtime/fs_host.c mounts
+
+
+class Dlc(Step):
+    """The add-on content of the player's own DLC file (--dlc, optional): for Scarlet and Violet only keyfile.dat, the
+    licence for The Teal Mask and The Indigo Disk, whose data ships in the 4.0.0 update (tools/extract_aoc.py). Without
+    --dlc the step leaves aoc/ as it is, so a later run without the file keeps the DLC an earlier one installed."""
+    id = 'dlc'
+
+    def key(self, ctx):
+        dlc = getattr(ctx.options, 'dlc', None)
+        if not dlc or not Path(dlc).is_file():
+            return fingerprint('dlc-1', 'none')
+        st = Path(dlc).stat()
+        return fingerprint('dlc-1', game_title(ctx), Path(dlc).name, str(st.st_size), str(st.st_mtime_ns),
+                           ctx.layout.tools / 'extract_aoc.py')
+
+    def current(self, ctx, record):
+        return all((ctx.dest / AOC / f).is_file() for f in record.get('files', []))
+
+    def run(self, ctx):
+        dlc = getattr(ctx.options, 'dlc', None)
+        if not dlc:
+            return {}
+        keys = getattr(ctx.options, 'keys', None)
+        if not keys or not Path(keys).is_file():
+            raise InstallError('check.inputs_needed')
+        try:
+            key_values = load_keys(Path(keys))
+        except (ValueError, OSError, UnicodeDecodeError):
+            raise InstallError('check.keys_unreadable') from None
+        Check.dlc_input(ctx, key_values, game_title(ctx))
+        ctx.reporter.progress('dlc', 'extract', force=True)
+        out = ctx.temp / AOC
+        remove(out)
+        try:
+            found = extract_aoc.extract(Path(dlc), key_values, out)
+        except ValueError as e:
+            raise_if_damaged(e, 'dlc', Path(dlc))
+            raise InstallError('dlc.failed', detail=str(e)) from None
+        del key_values
+        files = []
+        for title, _, entries in found:
+            remove(ctx.dest / AOC / title)
+            (ctx.dest / AOC).mkdir(parents=True, exist_ok=True)
+            shutil.move(out / title, ctx.dest / AOC / title)
+            files += [f'{title}/{e["path"]}' for e in entries]
+        remove(out)
+        return {'files': files}
+
+
 # ---- 4. lift
 
 EMITTED = re.compile(r'^emitted (\d+)/(\d+) chunks')
 DISCOVERED = re.compile(r'^(\w+): \d+ functions \(.*discovery')
 
 
-CHEAT_PLACES = ('cheats', f'atmosphere/contents/{GAME_TITLE}/cheats', f'contents/{GAME_TITLE}/cheats',
-                f'{GAME_TITLE}/cheats')
+CHEAT_PLACES = cheat_tool.places('cheats')   # Scarlet's and Violet's Atmosphere places (tools/cheats.py)
 
 
 def cheat_files(ctx):
@@ -860,8 +954,7 @@ def cheat_files(ctx):
                   for f in ((mod / where).glob('*.txt') if (mod / where).is_dir() else ()))
 
 
-EXEFS_PLACES = ('exefs', f'atmosphere/contents/{GAME_TITLE}/exefs', f'contents/{GAME_TITLE}/exefs',
-                f'{GAME_TITLE}/exefs')
+EXEFS_PLACES = cheat_tool.places('exefs')
 
 
 def exefs_files(ctx):
@@ -1031,7 +1124,8 @@ class Compile(Step):
             *(['--deps', layout.deps] if layout.deps else []), *(['--sysroot', layout.sysroot] if layout.sysroot else []),
             '--runtime', layout.runtime, *(['--runtime-lib', lib] if lib else ()), *(['--pgo', pgo] if pgo else ()),
             '--ninja', layout.ninja,
-            '--version', version_tag(game_version(ctx)), '--expected', layout.expected(game_version(ctx)),
+            '--version', version_tag(game_version(ctx)), '--expected', layout.expected(game_version(ctx), game_title(ctx)),
+            '--title', GAMES[game_title(ctx)][1],
             '--exefs', dest / 'exefs', '--romfs', dest / 'romfs',
             '--profile', dest / 'profile'], parse)
         exe = build / ('totk' + EXE)
@@ -1291,7 +1385,6 @@ class Cleanup(Step):
 
 # ---- the desktop shortcut
 
-SHORTCUT_NAME = 'Pokemon Scarlet'
 # Writes the shortcut through the WScript.Shell COM object, which ships with Windows. Its icon is totk.exe's own
 # (runtime/totk.ico, compiled into the exe), the icon Steam also shows for the exe added as a non-Steam game. The
 # Desktop is asked from .NET, which follows a OneDrive redirection.
@@ -1318,7 +1411,7 @@ def desktop_shortcut(ctx):
     who deletes it keeps it deleted. A failure warns: the game is installed."""
     dest, rep = ctx.dest, ctx.reporter
     script = ''.join(f'${k} = {ps_quote(v)}\n' for k, v in (
-        ('exe', dest / ('totk' + EXE)), ('dir', dest), ('name', SHORTCUT_NAME))) + SHORTCUT_PS
+        ('exe', dest / ('totk' + EXE)), ('dir', dest), ('name', GAMES[game_title(ctx)][0]))) + SHORTCUT_PS
     r = run_powershell(script)
     if r is None or r.returncode:
         rep.warning('warn.shortcut_failed', detail=(r.stderr.strip()[-300:] if r else 'powershell not found'))
@@ -1383,4 +1476,4 @@ def romfs_problem(romfs, expected):
 
 
 def all_steps():
-    return [Check(), Fonts(), Extract(), Lift(), Compile(), Prepare(), Dlss(), Cleanup()]
+    return [Check(), Fonts(), Extract(), Dlc(), Lift(), Compile(), Prepare(), Dlss(), Cleanup()]

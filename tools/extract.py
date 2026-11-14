@@ -79,7 +79,10 @@ def load_expected(title=None):
     """{display version: expected data} of the game with application ID title (every file when None; versions of
     different games then overwrite each other, as the TotK-only callers expect)."""
     versions = {}
-    for path in sorted(DATA.glob('expected-*.json')):
+    # tools/data/<game>/ holds the files of games that share a version name with another (Violet beside Scarlet):
+    # only a call for one title reads them, so the TotK-only callers without a title see tools/data/ alone
+    paths = sorted(DATA.glob('expected-*.json')) + (sorted(DATA.glob('*/expected-*.json')) if title else [])
+    for path in paths:
         data = json.loads(path.read_text())
         if title is None or data.get('title_id') == title:
             versions[data['display_version']] = data

@@ -1,5 +1,5 @@
 """Command line: python -m installer --base FILE --update FILE --keys FILE --lang CODE --dest DIR [--firmware DIR]
-                                     [--root DIR] [--temp DIR] [--verify] [--dlss]
+                                     [--dlc FILE] [--root DIR] [--temp DIR] [--verify] [--dlss]
 
 A first install needs every option. --firmware names the Switch firmware folder (an unpacked firmware or an emulator's
 Contents/registered); the setup extracts the system shared fonts from it when the language is Chinese, Korean or
@@ -7,6 +7,10 @@ Traditional Chinese. On a folder with totk-install.json (resume after a cancel o
 release) only --dest is needed: --lang defaults to the recorded language, and the game files are needed only when the
 extraction has to run again. Prints JSON events on stdout (events.py). Exit code: 0 done, 1 failed, 2 bad command
 line, 3 cancelled (Ctrl+C or Ctrl+Break).
+
+The base game decides the game: Pokemon Scarlet or Pokemon Violet, read from its title ID; the update must be the same
+game's. --dlc names the player's own DLC NSP (The Hidden Treasure of Area Zero), optional: the setup installs its
+licence into aoc/ (steps.py, Dlc), and a later run without --dlc keeps it.
 
 --dlss downloads NVIDIA's DLSS library (nvngx_dlss.dll) from NVIDIA's DLSS SDK repository into the install folder on
 Windows with an NVIDIA RTX GPU (steps.py, Dlss).
@@ -92,10 +96,11 @@ def cancel(signum, frame):
 def main(argv=None):
     ap = Parser(prog='python -m installer', description=__doc__.splitlines()[0])
     ap.add_argument('--base', type=Path, help='base game, XCI or NSP (or NSZ, XCZ: unpacked first)')
-    ap.add_argument('--update', type=Path, help='the update NSP or NSZ: Pokemon Scarlet 4.0.0')
+    ap.add_argument('--update', type=Path, help='the update NSP or NSZ: Pokemon Scarlet or Violet 4.0.0')
+    ap.add_argument('--dlc', type=Path, help='the DLC NSP of the same game (optional)')
     ap.add_argument('--keys', type=Path, help='prod.keys')
     ap.add_argument('--firmware', type=Path, help='Switch firmware folder (Contents/registered): the shared fonts '
-                                                   'Pokemon Scarlet draws its text with')
+                                                   'Pokemon Scarlet and Violet draw their text with')
     ap.add_argument('--lang', help='game language, a Switch language code (en-US, en-GB, ja, de, ru, ...)')
     ap.add_argument('--dest', type=Path, required=True, help='install folder')
     ap.add_argument('--root', type=Path, help='release folder or repository (default: the folder above installer/)')
@@ -104,8 +109,8 @@ def main(argv=None):
     ap.add_argument('--verify', action='store_true', help='hash every kept file, also those this release made')
     ap.add_argument('--dlss', action='store_true', help="download NVIDIA's nvngx_dlss.dll (NVIDIA RTX SDK license) next "
                                                       'to the game, for dlaa and the DLSS modes')
-    ap.add_argument('--game', type=Path, help="a folder holding the base game, the update, prod.keys and the firmware "
-                                              "(installer/gamefolder.py); explicit options win")
+    ap.add_argument('--game', type=Path, help="a folder holding the base game, the update, prod.keys, the firmware and "
+                                              "optionally the DLC (installer/gamefolder.py); explicit options win")
     ap.add_argument('--progress-lines', action='store_true', help='print `progress <0..1> <text>` lines instead of '
                                                                   'JSON events (RecompLauncher)')
     ap.add_argument('--no-shortcut', dest='shortcut', action='store_false',
@@ -123,8 +128,8 @@ def main(argv=None):
                 lines.reporter = rep
             rep.error('cli.game_folder', {'detail': str(e)})
             return 1
-        for name in ('base', 'update', 'keys', 'firmware'):
-            if not getattr(args, name):
+        for name in ('base', 'update', 'keys', 'firmware', 'dlc'):
+            if not getattr(args, name) and found.get(name):
                 setattr(args, name, found[name])
 
     # The window cancels with Ctrl+Break to the installer's process group (CREATE_NEW_PROCESS_GROUP), which also reaches

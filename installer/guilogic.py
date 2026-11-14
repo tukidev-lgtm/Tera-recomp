@@ -135,6 +135,7 @@ class Form:
     update: str = ''
     keys: str = ''
     firmware: str = ''
+    dlc: str = ''
     lang: str = ''
     dest: str = ''
     dlss: bool = False
@@ -174,12 +175,15 @@ class Form:
                     found.append(f'ui.missing_{name}')
         if self.firmware.strip() and not Path(self.firmware.strip()).is_dir():
             found.append('ui.missing_firmware')
+        if self.dlc.strip() and not Path(self.dlc.strip()).is_file():
+            found.append('ui.missing_dlc')
         return found
 
     def command(self, python, root=None, temp=None, verify_hashes=False):
         cmd = [str(python), '-m', 'installer']
         for flag, value in (('--base', self.base), ('--update', self.update), ('--keys', self.keys),
-                            ('--firmware', self.firmware), ('--lang', self.lang), ('--dest', self.dest)):
+                            ('--firmware', self.firmware), ('--dlc', self.dlc), ('--lang', self.lang),
+                            ('--dest', self.dest)):
             if value.strip():
                 cmd += [flag, value.strip()]
         if root:

@@ -1,4 +1,4 @@
-"""The Tera Recomp installer (Pokemon Scarlet): builds a playable folder from the player's own game files (docs/installer.md).
+"""The Tera Recomp installer (Pokemon Scarlet and Violet): builds a playable folder from the player's own game files (docs/installer.md).
 
     python -m installer --base FILE --update FILE --keys FILE --lang CODE --dest DIR [--firmware DIR] [--root DIR]
                         [--temp DIR]

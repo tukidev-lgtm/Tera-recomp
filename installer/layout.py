@@ -38,10 +38,25 @@ from pathlib import Path
 WIN = os.name == 'nt'
 EXE = '.exe' if WIN else ''
 UCRT = Path(r'C:\msys64\ucrt64\bin')
-# Tera Recomp builds Pokemon Scarlet. The check identifies the player's update by the hash of its main.
-GAME_TITLE = '0100A3D008C5C000'                   # application ID of the base game and of the update's Program NCA
-UPDATE_TITLE = '0100A3D008C5C800'                 # the update's Meta NCA
-GAME_NAME = 'Pokemon Scarlet'
+# Tera Recomp builds Pokemon Scarlet or Pokemon Violet: the check reads which one from the base game's title ID and
+# identifies the player's update by the hash of its main.
+GAMES = {'0100A3D008C5C000': ('Pokemon Scarlet', 'scarlet'),   # application ID -> name, build_game.py --title
+         '01008F6008C5E000': ('Pokemon Violet', 'violet')}
+GAME_TITLE = '0100A3D008C5C000'                   # the game of an install that recorded none (releases before 0.4.1)
+GAME_NAME = 'Pokemon Scarlet or Violet'
+
+
+def update_title(title):
+    """The update's Meta NCA title ID of an application: bit 11 set (...800)."""
+    return f'{int(title, 16) | 0x800:016X}'
+
+
+def aoc_game(title):
+    """The application an add-on content title ID belongs to (low 12 bits cleared, less 0x1000), else None."""
+    t = int(title, 16)
+    if t & 0xFFF in (0, 0x800):
+        return None
+    return f'{(t & ~0xFFF) - 0x1000:016X}'
 SUPPORTED = ('4.0.0',)                            # updates the installer builds
 ROMFS_ESTIMATE = 10 << 30                         # merged RomFS of a version without recorded hashes (4.0.0: 9.3 GiB)
 
@@ -96,14 +111,16 @@ class Layout:
         """The code patch table for recomp/gen.py."""
         return self.recomp / f'patches-{version_tag(version)}.txt'
 
-    def expected(self, version):
-        """The expected hashes of the update."""
-        return self.tools / 'data' / f'expected-v{version}.json'
+    def expected(self, version, title=GAME_TITLE):
+        """The expected hashes of the update of the game with application ID title (Violet's in tools/data/violet/)."""
+        sub = () if title == GAME_TITLE else (GAMES[title][1],)
+        return self.tools.joinpath('data', *sub, f'expected-v{version}.json')
 
     def missing(self, cpu='v3'):
         """Paths the steps need that do not exist. cpu picks the runtime library the host will use."""
         lib = self.runtime_lib_for(cpu)
-        need = [self.python, self.tools / 'extract.py', self.tools / 'ncz.py', self.tools / 'build_game.py',
+        need = [self.python, self.tools / 'extract.py', self.tools / 'extract_aoc.py', self.tools / 'ncz.py',
+                self.tools / 'build_game.py',
                 self.tools / 'prepare_shaders.py',
                 self.tools / 'pack_shader_cache.py', self.tools / 'make_romfs_patches.py', self.tools / 'ultrawide_layout.py',
                 self.tools / 'button_icons.py',
@@ -112,7 +129,8 @@ class Layout:
                 self.clang,
                 *((self.deps / 'include', self.deps / 'lib') if self.deps else ()), self.runtime, *([lib] if lib else ()),
                 self.ninja, self.hactool,
-                self.xlate, *self.dlls, *(f(v) for v in SUPPORTED for f in (self.patches, self.expected))]
+                self.xlate, *self.dlls, *(self.patches(v) for v in SUPPORTED),
+                *(self.expected(v, t) for v in SUPPORTED for t in GAMES)]
         if self.shader_list:
             need.append(self.shader_list)
         if self.sysroot:

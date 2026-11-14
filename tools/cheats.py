@@ -91,6 +91,14 @@ def parse(text, mod):
 
 
 TITLE = '0100A3D008C5C000'   # Pokemon Scarlet (Tera Recomp); was TotK's 0100F2C0115B6000
+TITLES = (TITLE, '01008F6008C5E000')   # Scarlet and Violet: a mod folder holds its own game's Atmosphere places
+
+
+def places(part):
+    """<part> and its Atmosphere places in a mod folder for either game (runtime/mods.c find_root, which looks for the
+    running game's own)."""
+    return (part, *(f'{where}/{t}/{part}' for t in TITLES for where in ('atmosphere/contents', 'contents')),
+            *(f'{t}/{part}' for t in TITLES))
 
 
 def cheat_files(mods, bid):
@@ -98,7 +106,7 @@ def cheat_files(mods, bid):
     (runtime/mods.c find_root), the file name in any case."""
     out = []
     for mod in sorted((d for d in mods.iterdir() if d.is_dir()), key=lambda d: d.name) if mods.is_dir() else []:
-        for where in ('cheats', f'atmosphere/contents/{TITLE}/cheats', f'contents/{TITLE}/cheats', f'{TITLE}/cheats'):
+        for where in places('cheats'):
             folder = mod / where
             if folder.is_dir():
                 f = next((p for p in sorted(folder.iterdir()) if p.is_file() and p.name.lower() == f'{bid}.txt'.lower()),

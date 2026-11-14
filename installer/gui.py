@@ -80,7 +80,7 @@ class App:
         self.run_args = run_args or {}   # extra CLI options for tests: temp, verify
         self.log_entries = []            # events and raw lines of the run, rendered by render_log
         self.bound = []                  # (widget, option, id, params) retranslated on a language switch
-        self.vars = {n: tk.StringVar() for n in ('base', 'update', 'keys', 'firmware', 'dest')}
+        self.vars = {n: tk.StringVar() for n in ('base', 'update', 'keys', 'firmware', 'dlc', 'dest')}
         self.vars['lang'] = tk.StringVar()
         self.recorded = {}       # base/update paths prefilled from the recorded ones, by field
         self.touched = set()     # fields the user picked or typed
@@ -139,7 +139,7 @@ class App:
             # size or mtime differ from the recorded ones.
             last = load_recent()
             self.recorded = {n: last[n] for n in ('base', 'update') if n in last and not self.vars[n].get().strip()}
-            for name in ('base', 'update', 'keys', 'firmware', 'dest'):
+            for name in ('base', 'update', 'keys', 'firmware', 'dlc', 'dest'):
                 if name in last and not self.vars[name].get().strip():
                     self.set_prefill(name, last[name])
 
@@ -256,6 +256,11 @@ class App:
         ttk.Entry(grid, textvariable=self.vars['firmware']).grid(row=i, column=1, sticky='ew', pady=gap)
         self.button(grid, 'ui.browse', self.pick_firmware).grid(row=i, column=2, padx=(dpi.px(8), 0))
         i += 1
+        self.label(grid, 'ui.dlc').grid(row=i, column=0, sticky='w', pady=gap)
+        ttk.Entry(grid, textvariable=self.vars['dlc']).grid(row=i, column=1, sticky='ew', pady=gap)
+        self.button(grid, 'ui.browse', lambda: self.pick_file('dlc', 'ui.pick_dlc')).grid(row=i, column=2,
+                                                                                           padx=(dpi.px(8), 0))
+        i += 1
         self.label(grid, 'ui.game_language').grid(row=i, column=0, sticky='w', pady=gap)
         self.lang_box = ttk.Combobox(grid, textvariable=self.vars['lang'], state='readonly', width=30)
         self.lang_box.grid(row=i, column=1, sticky='w', pady=gap)
@@ -267,6 +272,7 @@ class App:
         self.button(grid, 'ui.browse', self.pick_dest).grid(row=i + 1, column=2, padx=(dpi.px(8), 0))
         self.label(f, 'ui.compressed_help', wraplength=WRAP, justify='left').pack(anchor='w', pady=(dpi.px(8), 0))
         self.label(f, 'ui.firmware_help', wraplength=WRAP, justify='left').pack(anchor='w', pady=(dpi.px(8), 0))
+        self.label(f, 'ui.dlc_help', wraplength=WRAP, justify='left').pack(anchor='w', pady=(dpi.px(8), 0))
         # On by default and named with its source and licence: the player sees what is downloaded and can untick it
         self.dlss_var = tk.BooleanVar(value=False)   # Tera Recomp: DLSS not wired up for Scarlet yet
         dlss = ttk.Checkbutton(f, variable=self.dlss_var)
@@ -343,7 +349,8 @@ class App:
 
     def form(self):
         return Form(base=self.vars['base'].get(), update=self.vars['update'].get(), keys=self.vars['keys'].get(),
-                    firmware=self.vars['firmware'].get(), lang=self.selected_lang(), dest=self.vars['dest'].get(),
+                    firmware=self.vars['firmware'].get(), dlc=self.vars['dlc'].get(), lang=self.selected_lang(),
+                    dest=self.vars['dest'].get(),
                     dlss=self.dlss_var.get())
 
     def set_prefill(self, name, value):
