@@ -266,23 +266,21 @@ static void sv_decide(void) {
 
 // The render target pool for the size. The game takes what it gives this pool from the budget it spawns Pokémon from:
 // with 1328 MiB at 3840x2160 the field had none (the map still listed them), at 900 MiB one or two in an area, and at
-// 700-768 MiB as many as at 1920x1080. Less than about 640 MiB at 3840x2160 with a 4096 shadow map ran out at boot.
-// So the pool grows by little more than what the larger targets need: 35% of 268 MiB per extra 1920x1080 of pixels
-// (3840x2160: +281 MiB), and with a shadow map of our own, by its 4 cascades of 32-bit depth beyond the game's own
-// 2048x2048 (4096: +192 MiB). The proportional share alone left 2560x1600 short (360 MiB): loading a save sometimes
-// asked the pool for 256 KiB it no longer had, and the game crashed on the null it got back (main+0xc28198, issue #13);
-// 390 MiB always loaded. Above 1920x1080 the pool gets 32 MiB more for that: 392 MiB at 2560x1600, 773 MiB at 3840x2160
-// with a 4096 map. In whole MiB.
+// 700-800 MiB as many as at 1920x1080. Too small a pool fails one of the game's allocations from it, at start or while
+// loading a save, and the game crashes on the null it gets back (main+0xc28198, issue #13). Measured with the game's
+// shadow map, the smallest pools that loaded and the largest that crashed were 2560x1600: 390 / 360 MiB,
+// 3840x1600: 550 / 485 MiB, 3840x2160: 700 / 650 MiB. So the pool grows by 54% of 268 MiB per extra 1920x1080 of
+// pixels (2560x1600: 410 MiB, 3840x1600: 553, 3840x2160: 703), and with a shadow map of our own by its 4 cascades of
+// 16-bit depth beyond the game's own 2048x2048 (4096: +96 MiB; 3840x2160 with it loaded at 774 MiB, so the map takes
+// less than the 32-bit 192 MiB). 799 MiB at 3840x2160 with a 4096 map. In whole MiB.
 #define SV_SHADOW_BASE 2048u
-#define SV_RT_MARGIN (32ull << 20)
 static uint64_t sv_rt_mem(void) {
     sv_decide();
     uint64_t px = (uint64_t)SV.w * SV.h, base = (uint64_t)BASE_W * BASE_H;
     uint64_t mem = SV_RT_MEM;
-    if (px > base)
-        mem += (uint64_t)((double)SV_RT_MEM * 0.35 * (double)(px - base) / (double)base) + SV_RT_MARGIN;
+    if (px > base) mem += (uint64_t)((double)SV_RT_MEM * 0.54 * (double)(px - base) / (double)base);
     if (SV.shadow > SV_SHADOW_BASE)
-        mem += 4ull * 4 * ((uint64_t)SV.shadow * SV.shadow - (uint64_t)SV_SHADOW_BASE * SV_SHADOW_BASE);
+        mem += 4ull * 2 * ((uint64_t)SV.shadow * SV.shadow - (uint64_t)SV_SHADOW_BASE * SV_SHADOW_BASE);
     return (mem + 0xfffff) & ~0xfffffull;
 }
 
