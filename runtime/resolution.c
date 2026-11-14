@@ -269,13 +269,18 @@ static void sv_decide(void) {
 // 700-768 MiB as many as at 1920x1080. Less than about 640 MiB at 3840x2160 with a 4096 shadow map ran out at boot.
 // So the pool grows by little more than what the larger targets need: 35% of 268 MiB per extra 1920x1080 of pixels
 // (3840x2160: +281 MiB), and with a shadow map of our own, by its 4 cascades of 32-bit depth beyond the game's own
-// 2048x2048 (4096: +192 MiB); 741 MiB at 3840x2160 with a 4096 map. In whole MiB.
+// 2048x2048 (4096: +192 MiB). The proportional share alone left 2560x1600 short (360 MiB): loading a save sometimes
+// asked the pool for 256 KiB it no longer had, and the game crashed on the null it got back (main+0xc28198, issue #13);
+// 390 MiB always loaded. Above 1920x1080 the pool gets 32 MiB more for that: 392 MiB at 2560x1600, 773 MiB at 3840x2160
+// with a 4096 map. In whole MiB.
 #define SV_SHADOW_BASE 2048u
+#define SV_RT_MARGIN (32ull << 20)
 static uint64_t sv_rt_mem(void) {
     sv_decide();
     uint64_t px = (uint64_t)SV.w * SV.h, base = (uint64_t)BASE_W * BASE_H;
     uint64_t mem = SV_RT_MEM;
-    if (px > base) mem += (uint64_t)((double)SV_RT_MEM * 0.35 * (double)(px - base) / (double)base);
+    if (px > base)
+        mem += (uint64_t)((double)SV_RT_MEM * 0.35 * (double)(px - base) / (double)base) + SV_RT_MARGIN;
     if (SV.shadow > SV_SHADOW_BASE)
         mem += 4ull * 4 * ((uint64_t)SV.shadow * SV.shadow - (uint64_t)SV_SHADOW_BASE * SV_SHADOW_BASE);
     return (mem + 0xfffff) & ~0xfffffull;
