@@ -226,6 +226,7 @@ uint64_t res_heap_extra_bytes(void) {
 #define SV_RT_MEM (268ull << 20)
 
 static struct { int decided; unsigned w, h, shadow; float drs; } SV;
+#define SV_MAX_PX (3840ull * 2160)
 
 // TOTK_OUTPUT_RES, 16:9 only (the game's camera and layouts are 16:9; another shape takes the largest 16:9 size inside
 // it), 1280x720 to 7680x4320.
@@ -262,6 +263,16 @@ static void sv_decide(void) {
         if (k > kmax) k = kmax;
         SV.w = (unsigned)(SV.w * k + 0.5) & ~1u, SV.h = (unsigned)(SV.h * k + 0.5) & ~1u;
     }
+    // At most 3840x2160's pixel count, the largest size the render target pool was measured at (sv_rt_mem): a larger
+    // pool takes the memory the game spawns Pokémon from, a smaller one crashes. The shape stays, the present scales
+    // the picture to the window.
+    double px = (double)SV.w * SV.h, cap = (double)SV_MAX_PX;
+    if (px > cap) {
+        double k = sqrt(cap / px);
+        unsigned w0 = SV.w, h0 = SV.h;
+        SV.w = (unsigned)(SV.w * k) & ~1u, SV.h = (unsigned)(SV.h * k) & ~1u;
+        rt_log("resolution: %ux%u is more pixels than 3840x2160; the game draws %ux%u", w0, h0, SV.w, SV.h);
+    }
 }
 
 // The render target pool for the size. The game takes what it gives this pool from the budget it spawns Pokémon from:
@@ -269,10 +280,11 @@ static void sv_decide(void) {
 // 700-800 MiB as many as at 1920x1080. Too small a pool fails one of the game's allocations from it, at start or while
 // loading a save, and the game crashes on the null it gets back (main+0xc28198, issue #13). Measured with the game's
 // shadow map, the smallest pools that loaded and the largest that crashed were 2560x1600: 390 / 360 MiB,
-// 3840x1600: 550 / 485 MiB, 3840x2160: 700 / 650 MiB. So the pool grows by 54% of 268 MiB per extra 1920x1080 of
-// pixels (2560x1600: 410 MiB, 3840x1600: 553, 3840x2160: 703), and with a shadow map of our own by its 4 cascades of
-// 16-bit depth beyond the game's own 2048x2048 (4096: +96 MiB; 3840x2160 with it loaded at 774 MiB, so the map takes
-// less than the 32-bit 192 MiB). 799 MiB at 3840x2160 with a 4096 map. In whole MiB.
+// 3840x1600: 550 / 485 MiB, 3840x2160: 700 / 650 MiB (54% of 268 MiB per extra 1920x1080 of pixels covers them).
+// The pool grows by 60%, a tenth above, since a short pool fails only some of the time: 2560x1600: 425 MiB,
+// 3840x1600: 586, 3840x2160: 750. A shadow map of our own adds its 4 cascades of 16-bit depth beyond the game's own
+// 2048x2048 (4096: +96 MiB; 3840x2160 with it loaded at 774 MiB, so the map takes less than the 32-bit 192 MiB):
+// 846 MiB at 3840x2160 with a 4096 map. sv_decide keeps the size at most 3840x2160's pixel count. In whole MiB.
 #define SV_SHADOW_BASE 2048u
 static unsigned sv_pool_extra_mib(void);
 
@@ -280,7 +292,7 @@ static uint64_t sv_rt_mem(void) {
     sv_decide();
     uint64_t px = (uint64_t)SV.w * SV.h, base = (uint64_t)BASE_W * BASE_H;
     uint64_t mem = SV_RT_MEM;
-    if (px > base) mem += (uint64_t)((double)SV_RT_MEM * 0.54 * (double)(px - base) / (double)base);
+    if (px > base) mem += (uint64_t)((double)SV_RT_MEM * 0.60 * (double)(px - base) / (double)base);
     if (SV.shadow > SV_SHADOW_BASE)
         mem += 4ull * 2 * ((uint64_t)SV.shadow * SV.shadow - (uint64_t)SV_SHADOW_BASE * SV_SHADOW_BASE);
     mem += (uint64_t)sv_pool_extra_mib() << 20;

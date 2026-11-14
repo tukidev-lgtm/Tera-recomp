@@ -509,6 +509,8 @@ static void row_output_res(void) {
     for (int i = 0; i < N; i++) {
         int w = 0, h = 0;
         sscanf(vals[i], "%dx%d", &w, &h);
+        // Scarlet and Violet draw at most 3840x2160's pixel count (resolution.c sv_decide)
+        if (rt_game_version >= 400 && (long long)w * h > 3840LL * 2160) continue;
         snprintf(shown[n], sizeof shown[n], "%d × %d", w, h);   // U+00D7, the multiplication sign
         names[n] = shown[n];
         kept[n++] = vals[i];
