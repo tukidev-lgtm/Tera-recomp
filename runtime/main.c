@@ -234,6 +234,8 @@ static void crash_handler(const PlatCrash *x) {
     if (vk_pipeline_in_library()) vk_caps_gpl_crash();
     uint64_t f = x->module ? 0 : lifted_function(rip);
     if (f) rt_logf("  in lifted function f_%llx = %s\n", (unsigned long long)f, ldr_describe(f, d, sizeof d));
+    // Scarlet and Violet's render target pool ran short: the game read through the null its allocator returned
+    if (f && x->access == 0 && x->addr < 0x1000 && !strcmp(d, "main+0xc28198")) res_sv_pool_crash();
     // abort and invalid parameter: where the host code called it; a fault in another module: the driver code and the
     // host calls that led into it
     uintptr_t exe = plat_exe_base();

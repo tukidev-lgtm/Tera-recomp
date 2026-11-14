@@ -274,6 +274,8 @@ static void sv_decide(void) {
 // 16-bit depth beyond the game's own 2048x2048 (4096: +96 MiB; 3840x2160 with it loaded at 774 MiB, so the map takes
 // less than the 32-bit 192 MiB). 799 MiB at 3840x2160 with a 4096 map. In whole MiB.
 #define SV_SHADOW_BASE 2048u
+static unsigned sv_pool_extra_mib(void);
+
 static uint64_t sv_rt_mem(void) {
     sv_decide();
     uint64_t px = (uint64_t)SV.w * SV.h, base = (uint64_t)BASE_W * BASE_H;
@@ -281,7 +283,82 @@ static uint64_t sv_rt_mem(void) {
     if (px > base) mem += (uint64_t)((double)SV_RT_MEM * 0.54 * (double)(px - base) / (double)base);
     if (SV.shadow > SV_SHADOW_BASE)
         mem += 4ull * 2 * ((uint64_t)SV.shadow * SV.shadow - (uint64_t)SV_SHADOW_BASE * SV_SHADOW_BASE);
+    mem += (uint64_t)sv_pool_extra_mib() << 20;
     return (mem + 0xfffff) & ~0xfffffull;
+}
+
+// ---- The pool's safety net: sizes and settings no one measured (another shape, another DRS or shadow mix) can still
+// leave the pool short, and the game then crashes at start or while loading, every time. The crash handler
+// (main.c crash_handler) calls res_sv_pool_crash when the fault is the game's own null check at main+0xc28198; it
+// records 64 MiB more for this size and shadow map in rt-pool.txt next to totk.exe, and the next start gives the pool
+// that much more: a player gets a working game after a crash or two instead of one that never starts. Up to 512 MiB.
+#define SV_POOL_STEP 64u
+#define SV_POOL_MAX 512u
+#define SV_POOL_LINES 32
+
+static struct { int read; int n; struct { unsigned w, h, shadow, mib; } e[SV_POOL_LINES]; } pool;
+
+static int sv_pool_path(char *out, size_t n) {
+    char exe[PLAT_PATH_MAX * 2];
+    int len = plat_exe_path(exe, sizeof exe);
+    char *cut = len > 0 && (size_t)len < sizeof exe ? plat_last_sep(exe) : NULL;
+    if (!cut) return 0;
+    *cut = 0;
+    return snprintf(out, n, "%s/rt-pool.txt", exe) < (int)n;
+}
+
+static void sv_pool_read(void) {
+    if (pool.read) return;
+    pool.read = 1;
+    char path[PLAT_PATH_MAX * 2 + 16];
+    uint64_t n = 0;
+    char *d = sv_pool_path(path, sizeof path) ? (char *)plat_file_read(path, &n) : NULL;
+    if (!d) return;
+    char *t = malloc(n + 1);
+    if (t) {
+        memcpy(t, d, n), t[n] = 0;
+        for (char *line = strtok(t, "\r\n"); line && pool.n < SV_POOL_LINES; line = strtok(NULL, "\r\n")) {
+            unsigned w, h, sh, mib;
+            if (*line != '#' && sscanf(line, "%ux%u %u %u", &w, &h, &sh, &mib) == 4 && mib <= SV_POOL_MAX)
+                pool.e[pool.n].w = w, pool.e[pool.n].h = h, pool.e[pool.n].shadow = sh, pool.e[pool.n++].mib = mib;
+        }
+    }
+    free(t);
+    free(d);
+}
+
+static unsigned sv_pool_extra_mib(void) {
+    sv_pool_read();
+    for (int i = 0; i < pool.n; i++)
+        if (pool.e[i].w == SV.w && pool.e[i].h == SV.h && pool.e[i].shadow == SV.shadow) return pool.e[i].mib;
+    return 0;
+}
+
+void res_sv_pool_crash(void) {
+    if (!RT_SV) return;
+    sv_decide();
+    sv_pool_read();
+    unsigned now = sv_pool_extra_mib(), next = now + SV_POOL_STEP > SV_POOL_MAX ? SV_POOL_MAX : now + SV_POOL_STEP;
+    int i = 0;
+    while (i < pool.n && !(pool.e[i].w == SV.w && pool.e[i].h == SV.h && pool.e[i].shadow == SV.shadow)) i++;
+    if (i == pool.n) {
+        if (pool.n == SV_POOL_LINES) i = pool.n - 1;
+        else pool.n++;
+        pool.e[i].w = SV.w, pool.e[i].h = SV.h, pool.e[i].shadow = SV.shadow;
+    }
+    pool.e[i].mib = next;
+    char text[SV_POOL_LINES * 48 + 512], path[PLAT_PATH_MAX * 2 + 16];
+    int len = snprintf(text, sizeof text,
+                       "# The game ran out of render target memory at these sizes (runtime/resolution.c,\n"
+                       "# res_sv_pool_crash): game resolution, shadow map (0: the game's), MiB added to the pool.\n"
+                       "# Delete this file to start again from the computed sizes.\n");
+    for (int k = 0; k < pool.n && len > 0 && len < (int)sizeof text; k++)
+        len += snprintf(text + len, sizeof text - (size_t)len, "%ux%u %u %u\n", pool.e[k].w, pool.e[k].h,
+                        pool.e[k].shadow, pool.e[k].mib);
+    if (len > 0 && len < (int)sizeof text && sv_pool_path(path, sizeof path) &&
+        plat_file_write_atomic(path, text, (size_t)len))
+        rt_logf("  the game ran out of render target memory at %ux%u: %s gives the pool %u MiB more from the next "
+                "start\n", SV.w, SV.h, path, next);
 }
 
 static uint64_t sv_res_extra_bytes(void) { return ((sv_rt_mem() - SV_RT_MEM) + 0x1fffff) & ~0x1fffffull; }
@@ -315,8 +392,10 @@ static void sv_res_init(void) {
     if (SV.shadow && shadow >= 0) rt_patch_switch(shadow, 1);
     char sh[16] = "the game's";
     if (SV.shadow) snprintf(sh, sizeof sh, "%u", SV.shadow);
-    rt_log("resolution: %ux%u, 3D scene at %.0f%%, sun shadow map %s; render target memory %u MiB, application pool "
-           "+%llu MiB", SV.w, SV.h, SV.drs * 100.0, sh, mem >> 20, (unsigned long long)(sv_res_extra_bytes() >> 20));
+    rt_log("resolution: %ux%u, 3D scene at %.0f%%, sun shadow map %s; render target memory %u MiB%s, application pool "
+           "+%llu MiB", SV.w, SV.h, SV.drs * 100.0, sh, mem >> 20,
+           sv_pool_extra_mib() ? " (rt-pool.txt adds some after a crash)" : "",
+           (unsigned long long)(sv_res_extra_bytes() >> 20));
 }
 
 // TOTK_TEX_HEAP_EXTRA_MB (0 to 4096): more room in "TextureHeap" and its parent "ゲームグラフィックス", the heap the

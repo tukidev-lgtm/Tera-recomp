@@ -283,6 +283,7 @@ void res_present(Cpu *c);                                  // nvnQueuePresentTex
 void res_sizes(unsigned out[2], unsigned scene[2]);      // the output and scene sizes in effect (the game's own
                                                            // until res_init switched the sets on)
 int res_is_16x9(unsigned w, unsigned h);                   // within 1% of 16:9 (the test res_init and romfs.c share)
+void res_sv_pool_crash(void);              // the crash handler: the game ran out of render target memory
 int res_sv_ui_fit(void);                   // Scarlet and Violet at another shape than 16:9: the UI keeps a centred 16:9
 int vk_pipeline_in_library(void);   // this thread is in the driver building a pipeline library (vk_pipeline.c)
 void vk_caps_gpl_crash(void);       // the crash reporter: keep libraries off on this GPU and driver (vk_caps.c)
