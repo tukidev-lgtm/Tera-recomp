@@ -11,4 +11,5 @@
 int ov_handheld(void);                     // TOTK_OPERATION_MODE=handheld (default docked); fatal on another value
 const char *ov_language(void);             // the game's language, a Switch language code ("en-US", "zh-Hans", ...)
 const char *ov_shared_font_dir(char *buf, size_t n);   // TOTK_SHARED_FONTS, else <romfs>/../../firmware/shared-fonts
+int ov_aoc_dir(int index, char *buf, size_t n);          // folder of add-on content index; 0: none
 uint64_t ov_bfttf_size(const uint8_t *p, uint64_t len); // decoded font size of a BFTTF image, 0 if it is not one

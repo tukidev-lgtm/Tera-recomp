@@ -91,6 +91,7 @@ Many rows below are developer tools that only act together with another setting 
 | Setting | What it does | Effect of changing it | Safety |
 | --- | --- | --- | --- |
 | `amiibo_dir` | Folder the Amiibo tab starts in; the tab saves the folder you last browsed here. | Only changes which folder the tab lists first. | Safe |
+| `aoc_dir` | Folder of the add-on content (DLC) that `tools/extract_aoc.py` writes from the player's own DLC files, one subfolder per DLC title ID; the default is `aoc` beside `totk.exe`, else `aoc` two levels above the RomFS. | Without the folder the game sees no DLC, as on a console that has none: The Teal Mask and The Indigo Disk stay locked. | Safe |
 | `exefs` | Folder of the game's ExeFS (with `main.npdm`); a relative path is relative to `totk.exe`'s folder. | Without it, an `exefs` folder next to `totk.exe` is used, else the path set at build time. The game code is compiled into `totk.exe`, and the loader checks the files here by SHA-256, so files from another build or game version stop the start with a message. | Caution |
 | `mods_dir` (default `mods`) | Folder that holds one subfolder per player mod, beside `totk.exe`. | Mods found there replace game files; see `docs/mods.md`. | Caution |
 | `mods_disabled` | Names of mods that are switched off, separated by `\|`. | Listed mods are not applied; the Mods tab writes this line. | Safe |
