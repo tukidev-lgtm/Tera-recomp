@@ -25,6 +25,7 @@
 #include "host.h"
 #include "ov.h"
 #include "platform/platform.h"
+#include "title.h"
 
 #define NFP_R_DEVICE_NOT_FOUND 0x8073u     // nfp: no NFC reader on the host
 #define ACCOUNT_R_INVALID 0x7c67u          // MacNativeGames' result for an unknown user handle or uid
@@ -430,16 +431,66 @@ static void ov_show_error(Cpu *c) {
 
 // ==== SDK-internal initialisation (services.c)
 static void ov_diag_startup(Cpu *c) { (void)c; rt_log("diag: host diagnostics"); }
-static void ov_aoc_initialize(Cpu *c) { (void)c; rt_log("aoc: no add-on content"); }
-// 1.4.3's main lists add-on content (MNG services.c host_aoc_list): there is none.
-// int ListAddOnContent(AddOnContentIndex *out, int offset, int count)
+// ==== nn::aoc: add-on content (DLC). Scarlet and Violet's DLC title holds only keyfile.dat, the licence the game
+// reads to open The Teal Mask and The Indigo Disk, whose data ships in the 4.0.0 update. tools/extract_aoc.py writes
+// each DLC title the player owns as a folder <aoc dir>/<title id>/; index i of this title is the folder of title id
+// TITLE_PROGRAM_ID + 0x1000 + i. The aoc dir is TOTK_AOC_DIR, else aoc/ next to totk.exe, else <romfs>/../../aoc.
+#define AOC_MAX_INDEX 256
+static struct { PlatOnce once; int n; int32_t index[AOC_MAX_INDEX]; char dir[PLAT_PATH_MAX]; } aoc = {PLAT_ONCE_INIT};
+
+static void aoc_scan(void *unused) {
+    (void)unused;
+    const char *e = cfg_get("TOTK_AOC_DIR");
+    if (e && *e) snprintf(aoc.dir, sizeof aoc.dir, "%s", e);
+    else {
+        char exe[PLAT_PATH_MAX], probe[PLAT_PATH_MAX + 8];
+        int len = plat_exe_path(exe, sizeof exe);
+        char *cut = len && len < (int)sizeof exe ? plat_last_sep(exe) : NULL;
+        if (cut) *cut = 0;
+        snprintf(probe, sizeof probe, "%s/aoc", exe);
+        if (cut && plat_fs_kind(probe) == PLAT_FS_DIR) snprintf(aoc.dir, sizeof aoc.dir, "%s", probe);
+        else snprintf(aoc.dir, sizeof aoc.dir, "%s/../../aoc", rt_config()->romfs);
+    }
+    for (int i = 1; i < AOC_MAX_INDEX; i++) {
+        char p[PLAT_PATH_MAX + 32];
+        snprintf(p, sizeof p, "%s/%016llX", aoc.dir, (unsigned long long)(TITLE_PROGRAM_ID + 0x1000 + i));
+        if (plat_fs_kind(p) == PLAT_FS_DIR) aoc.index[aoc.n++] = i;
+    }
+    if (aoc.n) rt_log("aoc: %d add-on content title%s in %s, first index %d", aoc.n, aoc.n == 1 ? "" : "s", aoc.dir,
+                      aoc.index[0]);
+    else rt_log("aoc: no add-on content in %s (tools/extract_aoc.py writes it from the DLC files)", aoc.dir);
+}
+
+// The folder of add-on content index of this title into buf; 0 if the player has no such content.
+int ov_aoc_dir(int index, char *buf, size_t n) {
+    plat_once(&aoc.once, aoc_scan, NULL);
+    for (int i = 0; i < aoc.n; i++)
+        if (aoc.index[i] == index) {
+            snprintf(buf, n, "%s/%016llX", aoc.dir, (unsigned long long)(TITLE_PROGRAM_ID + 0x1000 + index));
+            return 1;
+        }
+    return 0;
+}
+
+static void ov_aoc_initialize(Cpu *c) {
+    (void)c;
+    plat_once(&aoc.once, aoc_scan, NULL);
+}
+// int ListAddOnContent(AddOnContentIndex *out, int offset, int count): the indexes from offset on, at most count.
 static void ov_aoc_list(Cpu *c) {
+    int32_t *out = arg_p(c, 0);
     int offset = (int)arg_x(c, 1), count = (int)arg_x(c, 2);
     if (offset < 0 || count < 0) rt_fatal("aoc: ListAddOnContent range %d+%d", offset, count);
-    ret_x(c, 0);
+    plat_once(&aoc.once, aoc_scan, NULL);
+    int k = 0;
+    for (int i = offset; i < aoc.n && k < count && out; i++) out[k++] = aoc.index[i];
+    ret_x(c, (uint64_t)k);
 }
-// int CountAddOnContent(): Scarlet/Violet ask how many there are before listing them. None on this host.
-static void ov_aoc_count(Cpu *c) { ret_x(c, 0); }
+// int CountAddOnContent(): Scarlet/Violet ask how many there are before listing them.
+static void ov_aoc_count(Cpu *c) {
+    plat_once(&aoc.once, aoc_scan, NULL);
+    ret_x(c, (uint64_t)aoc.n);
+}
 // Result GetAddOnContentListChangedEvent(os::SystemEvent *event): the list never changes while the game runs, so the
 // event is bound and never signalled. os::SystemEvent holds its SystemEventType at offset 0.
 static void ov_aoc_list_changed_event(Cpu *c) {

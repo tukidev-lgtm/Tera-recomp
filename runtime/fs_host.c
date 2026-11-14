@@ -25,6 +25,7 @@
 #include "platform/platform.h"
 #include "romfs_path.h"
 
+#include "ov.h"
 #include "title.h"
 #define TOTK_APPLICATION_ID TITLE_PROGRAM_ID   // the running title (title.h); the name is kept from TotK
 #define FILE_BASE 0x200000000ull
@@ -34,7 +35,9 @@
 #define NMOUNTS 16
 #define PATH_CAP 1100
 
-enum { M_FREE, M_SAVE, M_TEMP, M_CACHE, M_SAVE_RO };   // M_SAVE: the working copy; M_SAVE_RO: the committed save
+enum { M_FREE, M_SAVE, M_TEMP, M_CACHE, M_SAVE_RO, M_AOC };   // M_SAVE: the working copy; M_SAVE_RO: the committed save;
+// M_AOC: add-on content (read only)
+#define M_READ_ONLY(k) ((k) == M_SAVE_RO || (k) == M_AOC)
 
 typedef struct { int kind; char name[32]; char root[1024]; } Mount;
 typedef struct { PlatFile *h; int mode, save; } File;   // h NULL = free; save: on a save-data mount
@@ -706,7 +709,7 @@ static uint32_t host_path(const char *path, char *out, size_t cap) { return host
 static uint32_t save_change_path(const char *path, char *out, size_t cap) {
     int kind = M_FREE;
     uint32_t r = host_path_kind(path, out, cap, &kind);
-    if (!r && kind == M_SAVE_RO) return FS_R_UNSUPPORTED_OPEN;
+    if (!r && M_READ_ONLY(kind)) return FS_R_UNSUPPORTED_OPEN;
     if (!r && kind == M_SAVE) save_touched();
     return r;
 }
@@ -887,7 +890,7 @@ static uint32_t open_file(uint64_t *out, const char *path, int mode) {
     uint32_t r = host_path_kind(path, p, sizeof p, &kind);
     if (r) return r;
     if (plat_fs_kind(p) != PLAT_FS_FILE) return FS_R_PATH_NOT_FOUND;
-    if (kind == M_SAVE_RO && (mode & FS_OPEN_WRITE)) return FS_R_UNSUPPORTED_OPEN;
+    if (M_READ_ONLY(kind) && (mode & FS_OPEN_WRITE)) return FS_R_UNSUPPORTED_OPEN;
     int save_writer = kind == M_SAVE && (mode & FS_OPEN_WRITE);
     int err = 0;
     PlatFile *f = plat_fs_open(p, (mode & FS_OPEN_WRITE) != 0, &err);
@@ -1233,11 +1236,17 @@ static void ov_ensure_save(Cpu *c) { ret_x(c, my_uid(arg_p(c, 0)) ? 0 : FS_R_TAR
 // bool nn::fs::IsSaveDataExisting(const nn::account::Uid &): this title's own save.
 static void ov_save_exists_self(Cpu *c) { ret_x(c, save_exists(TOTK_APPLICATION_ID, arg_p(c, 0))); }
 
-// nn::Result nn::fs::MountAddOnContent(const char *name, int index, void *cache, size_t cache_size): no add-on content
-// on this host (aoc reports none, so the game should not ask).
+// nn::Result nn::fs::MountAddOnContent(const char *name, int index, void *cache, size_t cache_size): the folder
+// tools/extract_aoc.py wrote for that index (ov_system.c ov_aoc_dir), read only.
 static void ov_mount_aoc(Cpu *c) {
-    rt_log("fs: MountAddOnContent index %d refused: no add-on content", (int)arg_x(c, 1));
-    ret_x(c, FS_R_TARGET_NOT_FOUND);
+    int index = (int)arg_x(c, 1);
+    char dir[PATH_CAP];
+    if (!ov_aoc_dir(index, dir, sizeof dir)) {
+        rt_log("fs: MountAddOnContent index %d: the player has no such add-on content", index);
+        ret_x(c, FS_R_TARGET_NOT_FOUND);
+        return;
+    }
+    ret_x(c, mount_add(arg_p(c, 0), M_AOC, dir));
 }
 
 // nn::Result nn::fs::QueryMountAddOnContentCacheSize(size_t *out, int index)
