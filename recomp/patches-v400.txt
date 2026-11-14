@@ -24,8 +24,6 @@ site fps60 main 2b7a858 39c08154 52800014
 # the sun shadow map's side (u32, set svshadow).
 set svres TERA_SVRES 0
 set svshadow TERA_SVSHADOW 0
-set svscreen TERA_SVSCREEN 0
-set svphoto TERA_SVPHOTO 0
 # The window (described by main+0xbc51b0..0xbc528c, which also sizes the swapchain and the output and UI targets): its
 # size comes from the engine config's screenWidth / screenHeight (config +0x10 / +0x18), read at main+0xbc525c and
 # main+0xbc5264. ldr x9, [x8, #0x10] / [x8, #0x18] -> the page's width / height.
@@ -44,23 +42,11 @@ site svres main bd7024 f2c08708 @page:x8 f9404908
 site svres main dfabf8 1e210808 @page:x10 bd40ad43 1e230821 1e210808
 # fmul s9, s2, s0 -> fmul s0, s0, s3; fmul s9, s2, s0
 site svres main dfac04 1e200849 1e230800 1e200849
-# The scene's share of its render target, the render size divided by a fixed 1920.0 and 1080.0 (main+0xd42930).
-# mov w8, #0x44f00000 / #0x44870000 -> the page's floats.
+# The scene's share of its render target, the render size divided by a fixed 1920.0 and 1080.0 (main+0xd42930,
+# main+0x187be70). mov w8, #0x44f00000 / #0x44870000 -> the page's floats.
 site svres main d42930 52a89e08 @page:x8 b9409908
 site svres main d42940 52a890e8 @page:x8 b9409d08
-# main+0x187be60 reads the screen size from the engine config (1920x1080 there whatever the game size), keeps it in
-# globals and scales a rectangle laid out for 1920x1080 by width / 1920.0 into pixels: the enrolment form's portrait
-# came out off-centre at another size (the rectangle stayed 1920x1080's), and with the 1920.0 replaced by the game
-# width instead it shrank. The size read -> the page's width and height, so the rectangle grows with the game size.
-# ldur w8, [x29, #-4] / ldur w9, [x29, #-8] -> ldr w8, [page + 0x80] / ldr w9, [page + 0x84]
-site svres main 187be60 b85fc3a8 @page:x8 b9408108
-site svres main 187be78 b85f83a9 @page:x9 b9408529
-# Test (set svphoto, off unless TERA_SVPHOTO=1): the photo size the game's scripts read, a fixed 1440x864
-# (main+0x18db320 and main+0x18db400). The photo texture follows the rectangle above (1440x864 laid out for 1920x1080,
-# so 1920x1152 at 2560x1440), and a photo of the fixed size filled only part of it: the enrolment portrait's lower part
-# stayed black. mov w0, #0x5a0 / #0x360 -> the page's +224 / +228 (the rectangle's size at the game size).
-site svphoto main 18db354 5280b400 @page:x0 b940e000
-site svphoto main 18db434 52806c00 @page:x0 b940e400
+site svres main 187be70 52a89e08 @page:x8 b9409908
 # The scene render targets with a fixed 1920x1080 in their description (passed to main+0x107e220, which creates them).
 site svres main 2635370 5280f00a @page:x10 b940814a
 site svres main 2635374 5280870b @page:x11 b940856b
@@ -92,18 +78,6 @@ site svshadow main 16dc200 b983d66d @page:x13 b940b1ad
 # The GPU memory the render targets come from (graphics config memorySize_CpuInvisible_GpuCached, which main+0x146e770
 # sets to 268 MiB when the data says 320 MiB): without more of it, a larger size runs out when the map opens.
 site svres main 146e770 52a21809 @page:x9 b940a129
-# Test (set svscreen, off unless TERA_SVSCREEN=1): main+0xbdecf0 builds a {1920.0, 1080.0, 1/1920, 1/1080} screen
-# description that nothing updates for the game resolution; the character's portrait on the opening enrolment form
-# came out off-centre at 2560x1440. Each half from the page instead: +152 the width and height as floats (one 64-bit
-# load), +216 their inverses.
-# mov x8, #0x44f00000 -> adrp x8, page; ldr x8, [x8, #0x98]; movk x8, #0x4487, lsl #48 -> nop
-site svscreen main bdecf0 d2a89e08 @page:x8 f9404d08
-site svscreen main bdecfc f2e890e8 d503201f
-# mov x9, #0x8889 -> adrp x9, page; ldr x9, [x9, #0xd8]; the three movk -> nop
-site svscreen main bdecf4 d2911129 @page:x9 f9406d29
-site svscreen main bdecf8 f2a74109 d503201f
-site svscreen main bded00 f2d73ac9 d503201f
-site svscreen main bded04 f2e74e49 d503201f
 
 # Debugging trace points (runtime/tracepoint.c). Remove before a release build.
 # Boot: nnMain's init chain (main+0x11bcc84) calls the object's virtual main+0x14fd2d8, which locks a field of the
