@@ -53,10 +53,26 @@ static uint32_t ctor_state(const RtLoaded *m) { return LD32(m->ctor_flag); }
 static const char *caller(const Cpu *c, char *buf, int n) { return ldr_describe(c->x[30] - 4, buf, n); }
 
 // main.npdm META: the main thread's priority (+0xE), core (+0xF) and stack size (+0x1C). kernel.c builds the main
-// thread with the 1.2.1 values; a different npdm means a different game build.
+// thread with those values. main.npdm is the process's metadata, not code, and dumps re-signed by a repacking tool
+// carry a different one (tools/extract.py accepts it for the same reason), so its hash is only logged: the code
+// modules are still checked byte for byte (loader.c ldr_read_verified), and the META values below must match.
 static void check_npdm(void) {
-    size_t n;
-    uint8_t *npdm = ldr_read_verified(rt_config()->exefs, "main.npdm", &n);
+    char path[1024];
+    snprintf(path, sizeof path, "%s/main.npdm", rt_config()->exefs);
+    uint64_t size = 0;
+    uint8_t *npdm = plat_file_read(path, &size);
+    if (!npdm) rt_fatal("boot: cannot read %s (extract the game first: tools/extract.py)", path);
+    size_t n = (size_t)size;
+    const char *want = NULL;
+    for (int i = 0; i < rt_exefs_sha256_count; i++)
+        if (!strcmp(rt_exefs_sha256[i].file, "main.npdm")) want = rt_exefs_sha256[i].sha256;
+    uint8_t d[32];
+    char hex[65];
+    rt_sha256(npdm, n, d);
+    for (int i = 0; i < 32; i++) snprintf(hex + 2 * i, 3, "%02x", d[i]);
+    if (want && strcmp(hex, want))
+        rt_log("boot: main.npdm has SHA-256 %s, the reference dump's is %s; it is metadata, the code modules are "
+               "checked", hex, want);
     if (n < 0x80 || memcmp(npdm, "META", 4)) rt_fatal("boot: main.npdm has no META header");
     uint32_t stack;
     memcpy(&stack, npdm + 0x1C, 4);
