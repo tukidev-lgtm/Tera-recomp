@@ -373,7 +373,18 @@ void res_sv_pool_crash(void) {
                 "start\n", SV.w, SV.h, path, next);
 }
 
-static uint64_t sv_res_extra_bytes(void) { return ((sv_rt_mem() - SV_RT_MEM) + 0x1fffff) & ~0x1fffffull; }
+// The application pool grows by the render target pool's growth and, above 1920x1080, by as much again for the
+// pixels. The render target pool is not the only memory that grows with the size: at 2560x1440 with the pool grown by
+// the render target pool's 126 MiB alone, the game maps all it is given at start and, after a battle, fails to map more
+// (memory.c alias_map answers R_LIMIT_REACHED hundreds of times) and stops on svcBreak (issue #13). The same
+// size ran through battles with 254 MiB and 382 MiB more. The game's own 92 MiB left after start stayed the same in
+// all three, so the log cannot tell the need; the second share is the measured margin. In 2 MiB steps.
+static uint64_t sv_res_extra_bytes(void) {
+    uint64_t extra = sv_rt_mem() - SV_RT_MEM;   // sv_rt_mem decides SV first
+    uint64_t px = (uint64_t)SV.w * SV.h, base = (uint64_t)BASE_W * BASE_H;
+    if (px > base) extra += (uint64_t)((double)SV_RT_MEM * 0.60 * (double)(px - base) / (double)base);
+    return (extra + 0x1fffff) & ~0x1fffffull;
+}
 
 static void sv_res_init(void) {
     sv_decide();
