@@ -1393,9 +1393,12 @@ class Cleanup(Step):
             remove(ctx.temp / name)
         romfs_problem(dest / 'romfs', expected_update(ctx))
         write_rebuild_command(ctx)
-        if os.name == 'nt' and getattr(ctx.options, 'shortcut', True) and 'shortcut' not in ctx.state:
+        linux = sys.platform.startswith('linux')
+        opts = getattr(ctx, 'options', None)   # a context without options (tests) makes no shortcut
+        if (os.name == 'nt' or linux) and opts is not None and getattr(opts, 'shortcut', True) \
+                and 'shortcut' not in ctx.state:
             rep.progress('cleanup', 'shortcut', force=True)
-            desktop_shortcut(ctx)
+            (desktop_shortcut if os.name == 'nt' else linux_shortcut)(ctx)
         return {}
 
 
@@ -1435,6 +1438,76 @@ def desktop_shortcut(ctx):
     link = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ''
     rep.log(f'shortcut: {link}')
     ctx.state['shortcut'] = link
+
+
+# Linux: a desktop entry (freedesktop.org Desktop Entry spec) in ~/.local/share/applications, so the game is in the
+# application menu, and a copy on the desktop (xdg-user-dir DESKTOP). Its icon is the window icon the release ships
+# (runtime/totk.png), copied into the install folder so the entry keeps working when the setup's AppImage is gone.
+# Cinnamon (Linux Mint) and GNOME start a desktop file only once it is marked trusted, which gio does where it exists.
+LINUX_ENTRY = """[Desktop Entry]
+Type=Application
+Name={name}
+Comment={name} (Tera Recomp)
+Exec={exe}
+Path={dir}
+Icon={icon}
+Categories=Game;
+Terminal=false
+"""
+
+
+def desktop_quote(text):
+    """A path as a Desktop Entry Exec argument: quoted, with the characters the spec reserves escaped."""
+    s = str(text)
+    for c in ('\\', '"', '`', '$'):
+        s = s.replace(c, '\\' + c)
+    return '"' + s.replace('%', '%%') + '"'
+
+
+def xdg_desktop_dir():
+    try:
+        r = subprocess.run(['xdg-user-dir', 'DESKTOP'], capture_output=True, text=True, timeout=10)
+        d = Path(r.stdout.strip()) if r.returncode == 0 and r.stdout.strip() else None
+    except (OSError, subprocess.TimeoutExpired):
+        d = None
+    d = d or Path.home() / 'Desktop'
+    return d if d.is_dir() and d != Path.home() else None
+
+
+def linux_shortcut(ctx):
+    """The application-menu entry and the desktop launcher of the game (LINUX_ENTRY). Made once, like the Windows
+    shortcut; a failure warns: the game is installed."""
+    dest, rep = ctx.dest, ctx.reporter
+    name, short = GAMES[game_title(ctx)]
+    try:
+        icon = dest / 'game.png'
+        png = ctx.layout.runtime / 'totk.png'
+        if png.is_file():
+            shutil.copy2(png, icon)
+        text = LINUX_ENTRY.format(name=name, exe=desktop_quote(dest / 'totk'), dir=dest,
+                                  icon=icon if icon.is_file() else 'applications-games')
+        apps = Path(os.environ.get('XDG_DATA_HOME') or Path.home() / '.local' / 'share') / 'applications'
+        apps.mkdir(parents=True, exist_ok=True)
+        entry = apps / f'tera-recomp-{short}.desktop'
+        entry.write_text(text, encoding='utf-8')
+        entry.chmod(0o755)
+        made = [entry]
+        desk = xdg_desktop_dir()
+        if desk:
+            link = desk / f'{name}.desktop'
+            link.write_text(text, encoding='utf-8')
+            link.chmod(0o755)
+            try:   # Cinnamon and GNOME: launchable without the "untrusted application launcher" prompt
+                subprocess.run(['gio', 'set', str(link), 'metadata::trusted', 'true'], capture_output=True,
+                               timeout=10)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+            made.append(link)
+    except OSError as e:
+        rep.warning('warn.shortcut_failed', detail=str(e)[-300:])
+        return
+    rep.log('shortcut: ' + ', '.join(str(m) for m in made))
+    ctx.state['shortcut'] = str(made[-1])
 
 
 def run_powershell(script):

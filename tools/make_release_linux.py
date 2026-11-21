@@ -1,8 +1,8 @@
 """Assemble the Linux release folder of docs/installer.md ("Linux release") and pack it as an AppImage.
 
-    .venv/bin/python tools/make_release_linux.py --out build/release/TotK-Setup-linux \\
-        [--appimage build/release/TotK-Setup-x86_64.AppImage]
-    .venv/bin/python tools/make_release_linux.py --out build/release/TotK-Setup-linux --prove
+    .venv/bin/python tools/make_release_linux.py --out build/release/Tera-Setup-linux \\
+        [--appimage build/release/Tera-Setup-x86_64.AppImage]
+    .venv/bin/python tools/make_release_linux.py --out build/release/Tera-Setup-linux --prove
 
 The same model as the Windows release (tools/make_release.py, whose download cache, unpacking and checks this reuses): the
 folder carries the setup and a toolchain, never game code; the player's machine builds the game. Everything that runs on
@@ -23,7 +23,8 @@ the .NET 10 SDK and Python 3.12+ with Pillow (.venv). The folder holds:
 
 --appimage packs the folder with appimagetool and the static type-2 runtime (no libfuse2 on the host). --prove compiles
 the generated C and links build/release-linux-check/totk with the folder's tools only, then runs the probes beside it.
-Like tools/make_release.py, both need one game version extracted and lifted first (generated/v121, else v143).
+Like tools/make_release.py, both need Scarlet 4.0.0 lifted first (generated/v400; the folder build reads only its
+layout.h and patches.h, --prove also its generated C and build/extracted/v400).
 
 The folder contains nothing derived from the game: check_content runs over it before the script finishes, then the
 folder's own python runs a check-only installer pass and the window's --selftest.
@@ -433,8 +434,8 @@ exec "$HERE/python/bin/python3" -m installer.gui "$@"
 
 DESKTOP = '''[Desktop Entry]
 Type=Application
-Name=TotK Recomp Setup
-Comment=Builds Tears of the Kingdom for this PC from your own game files
+Name=Tera Recomp Setup
+Comment=Builds Pokemon Scarlet or Violet for this PC from your own game files
 Exec=AppRun
 Icon=totk-setup
 Categories=Game;

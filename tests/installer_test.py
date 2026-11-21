@@ -6,6 +6,7 @@ Run: python tests/installer_test.py
 import http.client
 import io
 import json
+import os
 import re
 import sys
 import tempfile
@@ -465,6 +466,30 @@ class CleanupTest(unittest.TestCase):
 
     def test_intact_romfs_passes(self):
         self.assertEqual(self.run_cleanup(), 'ok')
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux desktop entries')
+    def test_linux_shortcut(self):
+        home = Path(self.tmp.name) / 'home'
+        (home / 'Desktop').mkdir(parents=True)
+        runtime = Path(self.tmp.name) / 'runtime'
+        runtime.mkdir()
+        (runtime / 'totk.png').write_bytes(b'png')
+        self.ctx.layout.runtime = runtime
+        self.ctx.state['title'] = '01008F6008C5E000'
+        saved = dict(os.environ)
+        os.environ.update(HOME=str(home), XDG_DATA_HOME=str(home / 'share'))
+        try:
+            self.steps.linux_shortcut(self.ctx)
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+        entry = home / 'share' / 'applications' / 'tera-recomp-violet.desktop'
+        text = entry.read_text(encoding='utf-8')
+        self.assertIn('Name=Pokemon Violet', text)
+        self.assertIn(f'Exec="{self.dest / "totk"}"', text)
+        self.assertIn(f'Icon={self.dest / "game.png"}', text)
+        self.assertTrue((home / 'Desktop' / 'Pokemon Violet.desktop').is_file())
+        self.assertEqual(self.ctx.state['shortcut'], str(home / 'Desktop' / 'Pokemon Violet.desktop'))
 
     def test_keeps_build_and_writes_rebuild_command(self):
         for name in ('gen', 'build', 'check'):

@@ -64,6 +64,23 @@ The setup prepares all of the game's shaders (about 36,000, taken from your own 
 and moves show up without the stutter of a first-time shader build. If that step fails, the setup says so and the game
 still runs: it then prepares each shader the first time it meets it.
 
+## Linux (experimental)
+
+Download `Tera-Setup-x86_64.AppImage`, make it executable and start it:
+
+```sh
+chmod +x Tera-Setup-x86_64.AppImage
+./Tera-Setup-x86_64.AppImage
+```
+
+The steps are the Windows ones. When it is done, the game is in your application menu and on your desktop, or start
+`totk` in the install folder. You need:
+
+- Linux 6.7 or newer (`uname -r`): Linux Mint 22, Ubuntu 24.04 with its HWE kernel, Fedora 40, SteamOS 3.8 and later.
+- A Vulkan 1.3 driver: Mesa (AMD and Intel) or NVIDIA's.
+- glibc 2.34 or newer (Ubuntu 22.04, Debian 12, Fedora 35 and later).
+- A desktop session: the setup opens a window to prepare the shaders.
+
 ## Settings
 
 The settings menu (**F1**) has, besides resolution, frame rate, shadows and controls:
