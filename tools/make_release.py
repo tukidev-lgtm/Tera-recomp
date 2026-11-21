@@ -38,6 +38,7 @@ files) and the window's --selftest.
 """
 import argparse
 import hashlib
+import http.client
 import json
 import os
 import shutil
@@ -146,19 +147,30 @@ def fetch(name):
         path.unlink()
     # into <name>.part, renamed once complete: a cut connection leaves a .part that the next run resumes, never a
     # short file under the final name
+    # A connection that stops sending raises after 60 s without data (the socket timeout covers each read) and the
+    # download resumes from the .part, up to 20 times: without the timeout a stalled transfer waited forever.
     part = path.with_name(path.name + '.part')
-    have = part.stat().st_size if part.is_file() else 0
-    print(f'download {url}' + (f' (resuming at {have} bytes)' if have else ''))
-    req = urllib.request.Request(url, headers={'Range': f'bytes={have}-'} if have else {})
-    try:
-        with urllib.request.urlopen(req) as r:
-            if have and r.status != 206:   # the server ignored the range: start over
-                have = 0
-            with open(part, 'ab' if have else 'wb') as f:
-                shutil.copyfileobj(r, f)
-    except urllib.error.HTTPError as e:
-        if e.code != 416:   # 416: the .part already holds the whole file
-            raise
+    for attempt in range(20):
+        have = part.stat().st_size if part.is_file() else 0
+        print(f'download {url}' + (f' (resuming at {have} bytes)' if have else ''), flush=True)
+        req = urllib.request.Request(url, headers={'Range': f'bytes={have}-'} if have else {})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                if have and r.status != 206:   # the server ignored the range: start over
+                    have = 0
+                with open(part, 'ab' if have else 'wb') as f:
+                    shutil.copyfileobj(r, f, 1 << 20)
+            break
+        except urllib.error.HTTPError as e:
+            if e.code == 416:   # the .part already holds the whole file
+                break
+            if e.code < 500 or attempt == 19:
+                raise
+        except (OSError, http.client.HTTPException) as e:   # timeouts, resets, cut transfers
+            if attempt == 19:
+                raise
+            print(f'  {type(e).__name__}: {e}; resuming', flush=True)
+        time.sleep(min(30, 2 ** attempt))
     part.replace(path)
     got = sha256_file(path)
     if got != want:
