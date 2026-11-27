@@ -8,13 +8,14 @@
   },
   "prepare": {
     "label": "Building Pokémon Scarlet from your files",
-    "program": ["python/python.exe"],
+    "program": ["python/python.exe", "python/bin/python3"],
     "args": ["-m", "installer", "--game", "{game}", "--dest", "{install}/game", "--lang", "auto", "--progress-lines",
              "--no-shortcut"],
+    "env": {"PYTHONDONTWRITEBYTECODE": "1"},
     "timeout": 3600
   },
   "start": {
-    "program": ["game/totk.exe"]
+    "program": ["game/totk.exe", "game/totk"]
   },
   "config": [
     {
