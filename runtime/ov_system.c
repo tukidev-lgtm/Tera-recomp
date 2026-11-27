@@ -823,6 +823,74 @@ static void ov_to_posix_utc(Cpu *c) {
     ret_x(c, (uint64_t)t);
 }
 
+// ---- time zone rules (Scarlet and Violet). The game loads the device's rule (GetDeviceLocationName, LoadTimeZoneRule)
+// and turns local calendar times into posix times with it (ToPosixTime with a rule), for the day its mass outbreaks and
+// other daily events belong to. In the SDK those go to the time zone service, which nn::time::Initialize (overridden
+// above) never opens, so each answered 0x74 and the game counted days from a failed conversion: outbreaks reset and
+// their notices came again and again (issues #23, #27). A rule here is a marker and the location name: the device's own
+// name, or any name the host cannot tell apart, converts with the host's zone, DST included; "UTC" and "Etc/GMT+N"
+// convert with their fixed offset.
+#define RULE_MAGIC 0x52545a4841524554ull   // "TERAHZTR"
+typedef struct { uint64_t magic; char name[0x24]; int32_t fixed; int32_t west; } RuleMark;
+
+// Result GetDeviceLocationName(LocationName *out)
+static void ov_device_location(Cpu *c) {
+    char *out = arg_p(c, 0);
+    if (!out) { ret_x(c, TIME_R_INVALID); return; }
+    location_name(out);
+    ret_x(c, 0);
+}
+
+// Result LoadTimeZoneRule(TimeZoneRule *out, const LocationName &name)
+static void ov_load_rule(Cpu *c) {
+    RuleMark *out = arg_p(c, 0);
+    const char *name = arg_p(c, 1);
+    if (!out || !name) { ret_x(c, TIME_R_INVALID); return; }
+    RuleMark m = {RULE_MAGIC, {0}, 0, 0};
+    memcpy(m.name, name, sizeof m.name - 1);
+    char device[0x24];
+    location_name(device);
+    long hours;
+    char sign;
+    if (strcmp(m.name, device) && !strcmp(m.name, "UTC")) m.fixed = 1;
+    else if (strcmp(m.name, device) && sscanf(m.name, "Etc/GMT%c%ld", &sign, &hours) == 2 && (sign == '+' || sign == '-'))
+        m.fixed = 1, m.west = (int32_t)((sign == '+' ? hours : -hours) * 3600);
+    *out = m;
+    rt_log("time: zone rule for \"%s\": %s", m.name, m.fixed ? "a fixed offset" : "the host's local zone");
+    ret_x(c, 0);
+}
+
+// The posix time of a local calendar time in the host's zone: the UTC reading less the zone's offset at that moment,
+// found from the standard offset and corrected once for DST (one answer; a time skipped or repeated by a DST change
+// gets the later offset's reading).
+static int64_t host_local_to_posix(int64_t as_utc) {
+    int64_t t = as_utc + plat_tz_west();
+    for (int i = 0; i < 2; i++) {
+        CalendarTime ct;
+        CalendarInfo ci;
+        if (!local_calendar(t, &ct, &ci)) break;
+        t = as_utc - ci.utc_offset;
+    }
+    return t;
+}
+
+// Result ToPosixTime(int *count, PosixTime *out, int out_count, const CalendarTime &local, const TimeZoneRule &rule)
+static void ov_to_posix_rule(Cpu *c) {
+    int32_t *count = arg_p(c, 0);
+    int64_t *out = arg_p(c, 1);
+    int32_t n = (int32_t)c->x[2];
+    const CalendarTime *ct = arg_p(c, 3);
+    const RuleMark *rule = arg_p(c, 4);
+    if (!count || !out || n < 1 || !ct || !rule || rule->magic != RULE_MAGIC) { ret_x(c, TIME_R_INVALID); return; }
+    int64_t mon = ct->month - 1, y = ct->year + floor_div(mon, 12);
+    mon -= floor_div(mon, 12) * 12;
+    int64_t as_utc = (days_from_civil(y, (unsigned)mon + 1, 1) + ct->day - 1) * 86400 + ct->hour * 3600 +
+                     ct->minute * 60 + ct->second;
+    *out = rule->fixed ? as_utc + rule->west : host_local_to_posix(as_utc);
+    *count = 1;
+    ret_x(c, 0);
+}
+
 // ClockSnapshot::ClockSnapshot()
 static void ov_snapshot_init(Cpu *c) {
     ClockSnapshot *s = arg_p(c, 0);
@@ -1059,6 +1127,10 @@ HOST_OVERRIDE("_ZN2nn4time14ToCalendarTimeEPNS0_12CalendarTimeEPNS0_22CalendarAd
               ov_to_calendar);
 HOST_OVERRIDE("_ZN2nn4time19ToCalendarTimeInUtcERKNS0_9PosixTimeE", ov_to_calendar_utc);
 HOST_OVERRIDE("_ZN2nn4time18ToPosixTimeFromUtcERKNS0_12CalendarTimeE", ov_to_posix_utc);
+HOST_OVERRIDE("_ZN2nn4time21GetDeviceLocationNameEPNS0_12LocationNameE", ov_device_location);
+HOST_OVERRIDE("_ZN2nn4time16LoadTimeZoneRuleEPNS0_12TimeZoneRuleERKNS0_12LocationNameE", ov_load_rule);
+HOST_OVERRIDE("_ZN2nn4time11ToPosixTimeEPiPNS0_9PosixTimeEiRKNS0_12CalendarTimeERKNS0_12TimeZoneRuleE",
+              ov_to_posix_rule);
 HOST_OVERRIDE("_ZN2nn4time13ClockSnapshotC1Ev", ov_snapshot_init);
 HOST_OVERRIDE("_ZN2nn4time13ClockSnapshot29CreateWithStandardSystemClockEPS1_", ov_snapshot_create);
 HOST_OVERRIDE("_ZN2nn4time20CalculateSpanBetweenEPNS_8TimeSpanERKNS0_13ClockSnapshotES5_", ov_span_between);

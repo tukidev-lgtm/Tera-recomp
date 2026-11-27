@@ -380,8 +380,13 @@ void res_sv_pool_crash(void) {
 // screen; with 254 MiB it played on (measurements in issue #13 and pull request #17). The game maps all the pool holds
 // at start, so the log cannot tell how much it needs later: the second share is a measured margin, not a computed one.
 // sv_rt_mem, the budget the game spawns Pokémon from, stays as it is. In 2 MiB steps.
+// At every size the pool also gets SV_POOL_MARGIN: at 1600x900 and 1280x720, with no growth of their own, long sessions
+// stopped the same way in story cutscenes (a gym leader's, the third battle against Nemona; issues #18 and #24), the
+// game asking to map memory beyond the retail pool hundreds of times and then aborting. The 254 MiB that cured
+// 2560x1440 are given everywhere.
+#define SV_POOL_MARGIN (256ull << 20)
 static uint64_t sv_res_extra_bytes(void) {
-    uint64_t extra = sv_rt_mem() - SV_RT_MEM;   // sv_rt_mem decides the size first
+    uint64_t extra = sv_rt_mem() - SV_RT_MEM + SV_POOL_MARGIN;   // sv_rt_mem decides the size first
     uint64_t px = (uint64_t)SV.w * SV.h, base = (uint64_t)BASE_W * BASE_H;
     if (px > base) extra += (uint64_t)((double)SV_RT_MEM * 0.60 * (double)(px - base) / (double)base);
     return (extra + 0x1fffff) & ~0x1fffffull;
@@ -390,7 +395,8 @@ static uint64_t sv_res_extra_bytes(void) {
 static void sv_res_init(void) {
     sv_decide();
     if (SV.w == BASE_W && SV.h == BASE_H && SV.drs == 1 && !SV.shadow) {
-        rt_log("resolution: the game's own, 1920x1080");
+        rt_log("resolution: the game's own, 1920x1080; application pool +%llu MiB",
+               (unsigned long long)(sv_res_extra_bytes() >> 20));
         return;
     }
     int set = rt_patch_set("svres");
