@@ -828,8 +828,8 @@ static void ov_to_posix_utc(Cpu *c) {
 // other daily events belong to. In the SDK those go to the time zone service, which nn::time::Initialize (overridden
 // above) never opens, so each answered 0x74 and the game counted days from a failed conversion: outbreaks reset and
 // their notices came again and again (issues #23, #27). A rule here is a marker and the location name: the device's own
-// name, or any name the host cannot tell apart, converts with the host's zone, DST included; "UTC" and "Etc/GMT+N"
-// convert with their fixed offset.
+// name, or any name the host cannot tell apart, converts with the host's zone, DST included; "UTC", "GMT" and their
+// aliases and "Etc/GMT+N" convert with their fixed offset (Scarlet loads "GMT" for its own UTC conversions).
 #define RULE_MAGIC 0x52545a4841524554ull   // "TERAHZTR"
 typedef struct { uint64_t magic; char name[0x24]; int32_t fixed; int32_t west; } RuleMark;
 
@@ -852,7 +852,11 @@ static void ov_load_rule(Cpu *c) {
     location_name(device);
     long hours;
     char sign;
-    if (strcmp(m.name, device) && !strcmp(m.name, "UTC")) m.fixed = 1;
+    static const char *const utc_names[] = {"UTC", "GMT", "Etc/UTC", "Etc/GMT", "Etc/GMT0", "Etc/Universal", "Etc/Zulu",
+                                            "Universal", "Zulu", "GMT0", "Etc/GMT+0", "Etc/GMT-0"};
+    int utc = 0;
+    for (size_t i = 0; i < sizeof utc_names / sizeof *utc_names; i++) utc |= !strcmp(m.name, utc_names[i]);
+    if (strcmp(m.name, device) && utc) m.fixed = 1;
     else if (strcmp(m.name, device) && sscanf(m.name, "Etc/GMT%c%ld", &sign, &hours) == 2 && (sign == '+' || sign == '-'))
         m.fixed = 1, m.west = (int32_t)((sign == '+' ? hours : -hours) * 3600);
     *out = m;
