@@ -891,6 +891,18 @@ static void ov_to_posix_rule(Cpu *c) {
     ret_x(c, 0);
 }
 
+// ---- nn::album. Scarlet and Violet's Rotom Phone camera saves its photo with SaveCurrentScreenshot, which in the SDK
+// asks the capture service; with no such service the call never came back and the game froze at the photo (issue
+// #28). The photo is reported as saved; there is no Switch album to keep it in.
+static void ov_album_initialize(Cpu *c) { ret_x(c, 0); }
+static void ov_album_finalize(Cpu *c) { ret_x(c, 0); }
+static void ov_album_save_screenshot(Cpu *c) {
+    static unsigned n;
+    if (n++ < 4) rt_log("album: the game saved a screenshot (option %llu); no album on this host keeps it",
+                        (unsigned long long)c->x[0]);
+    ret_x(c, 0);
+}
+
 // ClockSnapshot::ClockSnapshot()
 static void ov_snapshot_init(Cpu *c) {
     ClockSnapshot *s = arg_p(c, 0);
@@ -1127,6 +1139,9 @@ HOST_OVERRIDE("_ZN2nn4time14ToCalendarTimeEPNS0_12CalendarTimeEPNS0_22CalendarAd
               ov_to_calendar);
 HOST_OVERRIDE("_ZN2nn4time19ToCalendarTimeInUtcERKNS0_9PosixTimeE", ov_to_calendar_utc);
 HOST_OVERRIDE("_ZN2nn4time18ToPosixTimeFromUtcERKNS0_12CalendarTimeE", ov_to_posix_utc);
+HOST_OVERRIDE("_ZN2nn5album10InitializeEv", ov_album_initialize);
+HOST_OVERRIDE("_ZN2nn5album8FinalizeEv", ov_album_finalize);
+HOST_OVERRIDE("_ZN2nn5album21SaveCurrentScreenshotENS0_17AlbumReportOptionE", ov_album_save_screenshot);
 HOST_OVERRIDE("_ZN2nn4time21GetDeviceLocationNameEPNS0_12LocationNameE", ov_device_location);
 HOST_OVERRIDE("_ZN2nn4time16LoadTimeZoneRuleEPNS0_12TimeZoneRuleERKNS0_12LocationNameE", ov_load_rule);
 HOST_OVERRIDE("_ZN2nn4time11ToPosixTimeEPiPNS0_9PosixTimeEiRKNS0_12CalendarTimeERKNS0_12TimeZoneRuleE",
