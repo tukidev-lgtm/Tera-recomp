@@ -46,7 +46,7 @@ The menu saves the order and the switches in `totk.ini`, under `[mods]`, by fold
 Scarlet and Violet read their files from the packed archive `romfs\arc\data.trpfs`. A loose file replaces a file of the
 archive only when the archive's index, `romfs\arc\data.trpfd`, no longer lists it. So a mod that only ships loose
 files (a shiny colour, a texture, a model) changes nothing on its own. Load such mods into
-[Trinity Mod Loader](https://github.com/Trinity-Mod-Loader) and export them: the exported `romfs` folder holds the
+[Trinity Mod Loader](https://github.com/pkZukan/gftool) and export them: the exported `romfs` folder holds the
 loose files and an index without them. Put that export into one folder in `mods` (for example `mods\TML\romfs\...`);
 it counts as one mod here. Mods released already exported (they ship their own `arc\data.trpfd`) go into `mods` as
 they are.
