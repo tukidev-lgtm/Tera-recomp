@@ -25,8 +25,9 @@ packs, gameplay and text changes from GameBanana and similar sites, TKMM's merge
    ```
 
    An archive laid out for a Switch SD card or an emulator works as it is. Inside the mod's folder the port also finds
-   `atmosphere\contents\0100F2C0115B6000\romfs`, `contents\0100F2C0115B6000\romfs` and `0100F2C0115B6000\romfs`, the
-   same places for `exefs` and `cheats`, and `atmosphere\exefs_patches\<name>\` for code patches.
+   `atmosphere\contents\<title id>\romfs`, `contents\<title id>\romfs` and `<title id>\romfs`, the same places for
+   `exefs` and `cheats`, and `atmosphere\exefs_patches\<name>\` for code patches. The title id is
+   `0100A3D008C5C000` for Scarlet and `01008F6008C5E000` for Violet.
 3. Start the game. A mod that patches the game's code makes the game rebuild itself first (see Code patches below).
 4. Open the Mods tab to check the mod. Each row says how many game files the mod replaces and adds, how many cheats it
    brings, and why a part of it is not used.
@@ -40,10 +41,21 @@ higher one wins; the lower mod's row says how many of its files the higher one c
 The menu saves the order and the switches in `totk.ini`, under `[mods]`, by folder name: `mods_order` and
 `mods_disabled`. A folder the list does not name yet, such as a new or renamed one, goes below the named ones.
 
+### Scarlet and Violet: mods made with Trinity Mod Loader
+
+Scarlet and Violet read their files from the packed archive `romfs\arc\data.trpfs`. A loose file replaces a file of the
+archive only when the archive's index, `romfs\arc\data.trpfd`, no longer lists it. So a mod that only ships loose
+files (a shiny colour, a texture, a model) changes nothing on its own. Load such mods into
+[Trinity Mod Loader](https://github.com/Trinity-Mod-Loader) and export them: the exported `romfs` folder holds the
+loose files and an index without them. Put that export into one folder in `mods` (for example `mods\TML\romfs\...`);
+it counts as one mod here. Mods released already exported (they ship their own `arc\data.trpfd`) go into `mods` as
+they are.
+
 ### Mods that change the same files
 
-Two mods that edit the same game file do not combine: the higher one wins the whole file. Merge such mods with
-[TKMM](https://github.com/TKMM-Team/Tkmm) (TotK Mod Manager) and set its export location to an empty folder inside
+Two mods that edit the same game file do not combine: the higher one wins the whole file. For Scarlet and Violet,
+merge them in Trinity Mod Loader (above); each export carries its own `data.trpfd`, so two exports do not combine
+either. For Tears of the Kingdom, merge such mods with [TKMM](https://github.com/TKMM-Team/Tkmm) (TotK Mod Manager) and set its export location to an empty folder inside
 `mods`, for example `mods\TKMM`. The exported folder then counts as one mod here. Mods packaged for TKMM only
 (`.tkcl` files) go the same way.
 
@@ -65,7 +77,7 @@ ahead of time, so these patches are built into `totk.exe`:
 3. After the rebuild the mod switches on and off from the Mods tab like any other, without another rebuild.
 
 The rebuild needs the setup folder the game was installed from. When that folder was moved or deleted, run
-`TotK-Setup.exe` again on the same install folder: it does the same job. `mods_rebuild = off` under `[mods]` in
+`Tera-Setup.exe` again on the same install folder: it does the same job. `mods_rebuild = off` under `[mods]` in
 `totk.ini` turns the automatic rebuild off.
 
 A code patch over one of the port's own patches (the 60 FPS patch, the resolution patch and the other entries under
